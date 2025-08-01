@@ -124,7 +124,7 @@ require (
 	google.golang.org/protobuf v1.36.7
 	helm.sh/helm/v3 v3.18.6
 	istio.io/api v1.26.2
-	istio.io/istio v0.0.0-20250917160244-124886fd886f
+	istio.io/istio v0.0.0-20250730222203-330cf4295361
 	k8s.io/api v0.34.0-rc.1
 	k8s.io/apiextensions-apiserver v0.34.0-rc.1
 	k8s.io/apimachinery v0.34.0-rc.1
