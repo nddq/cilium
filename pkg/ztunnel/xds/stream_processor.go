@@ -9,8 +9,8 @@ import (
 
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
-	"github.com/cilium/cilium/pkg/logging/logfields"
 	cilium_api_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
+	"github.com/cilium/cilium/pkg/logging/logfields"
 )
 
 // StreamProcessor acts as a endpointmanager.Subscriber
@@ -24,9 +24,9 @@ type StreamProcessorParams struct {
 	StreamRecv chan *v3.DeltaDiscoveryRequest
 	// Channel where the StreamProcessor listens for Endpoint event.
 	// this is fed by subscribing to EndpointManager.
-	EndpointEventRecv chan *EndpointEvent
-	EndpointManager   endpointmanager.EndpointManager
-	Log               *slog.Logger
+	EndpointEventRecv   chan *EndpointEvent
+	EndpointManager     endpointmanager.EndpointManager
+	Log                 *slog.Logger
 	CiliumEndpointStore *cache.SharedIndexInformer
 }
 
@@ -35,25 +35,25 @@ type StreamProcessorParams struct {
 // promote decoupling and the handling multiple streams without a shared set of
 // channels being required on the Server object.
 type StreamProcessor struct {
-	stream          v3.AggregatedDiscoveryService_DeltaAggregatedResourcesServer
-	streamRecv      chan *v3.DeltaDiscoveryRequest
-	endpointRecv    chan *EndpointEvent
-	endpointManager endpointmanager.EndpointManager
+	stream              v3.AggregatedDiscoveryService_DeltaAggregatedResourcesServer
+	streamRecv          chan *v3.DeltaDiscoveryRequest
+	endpointRecv        chan *EndpointEvent
+	endpointManager     endpointmanager.EndpointManager
 	CiliumEndpointStore *cache.SharedIndexInformer
-	
-	expectedNonce   map[string]struct{}
-	log             *slog.Logger
+
+	expectedNonce map[string]struct{}
+	log           *slog.Logger
 }
 
 func NewStreamProcessor(params *StreamProcessorParams) *StreamProcessor {
 	sp := &StreamProcessor{
-		stream:          params.Stream,
-		streamRecv:      params.StreamRecv,
-		endpointRecv:    params.EndpointEventRecv,
-		endpointManager: params.EndpointManager,
-		log:             params.Log,
+		stream:              params.Stream,
+		streamRecv:          params.StreamRecv,
+		endpointRecv:        params.EndpointEventRecv,
+		endpointManager:     params.EndpointManager,
+		log:                 params.Log,
 		CiliumEndpointStore: params.CiliumEndpointStore,
-		expectedNonce:   make(map[string]struct{}),
+		expectedNonce:       make(map[string]struct{}),
 	}
 	return sp
 }
@@ -86,7 +86,6 @@ func (sp *StreamProcessor) handleAddressTypeURL(req *v3.DeltaDiscoveryRequest) e
 		return fmt.Errorf("CiliumEndpoint store is not initialized")
 	}
 	st := *sp.CiliumEndpointStore
-	
 
 	var ceps []*cilium_api_v2.CiliumEndpoint
 	for _, obj := range st.GetStore().List() {

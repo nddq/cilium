@@ -63,12 +63,12 @@ var _ v3.AggregatedDiscoveryServiceServer = (*Server)(nil)
 // certificate authority capable of signing CSR(s)s submitted by zTunnel and a
 // control plane capable of sending workload and service events to zTunnel.
 type Server struct {
-	l         net.Listener
-	g         *grpc.Server
-	log       *slog.Logger
-	epManager endpointmanager.EndpointManager
+	l                   net.Listener
+	g                   *grpc.Server
+	log                 *slog.Logger
+	epManager           endpointmanager.EndpointManager
 	ciliumEndpointStore *cache.SharedIndexInformer
-	caCert    *x509.Certificate
+	caCert              *x509.Certificate
 	// cache the PEM encoded certificate, we return this as the trust anchor
 	// on zTunnel certificate creation requests.
 	caCertPEM string
@@ -80,8 +80,8 @@ type Server struct {
 
 func newServer(log *slog.Logger, epManager endpointmanager.EndpointManager, ciliumEndpointStore *cache.SharedIndexInformer) (*Server, error) {
 	x := &Server{
-		log:                log,
-		epManager:          epManager,
+		log:                 log,
+		epManager:           epManager,
 		ciliumEndpointStore: ciliumEndpointStore,
 	}
 	return x, nil
@@ -363,11 +363,11 @@ func (x *Server) DeltaAggregatedResources(stream v3.AggregatedDiscoveryService_D
 	}
 
 	params := StreamProcessorParams{
-		Stream:            stream,
-		StreamRecv:        make(chan *v3.DeltaDiscoveryRequest, 1),
-		EndpointEventRecv: make(chan *EndpointEvent, 1024),
-		EndpointManager:   x.epManager,
-		Log:               x.log,
+		Stream:              stream,
+		StreamRecv:          make(chan *v3.DeltaDiscoveryRequest, 1),
+		EndpointEventRecv:   make(chan *EndpointEvent, 1024),
+		EndpointManager:     x.epManager,
+		Log:                 x.log,
 		CiliumEndpointStore: x.ciliumEndpointStore,
 	}
 	if params.CiliumEndpointStore == nil {
