@@ -36,6 +36,7 @@ type StreamProcessor struct {
 	streamRecv      chan *v3.DeltaDiscoveryRequest
 	endpointRecv    chan *EndpointEvent
 	endpointManager endpointmanager.EndpointManager
+	
 	expectedNonce   map[string]struct{}
 	log             *slog.Logger
 }

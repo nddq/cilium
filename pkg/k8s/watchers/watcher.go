@@ -274,7 +274,8 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 			k.k8sEndpointsWatcher.endpointsInit()
 		case k8sAPIGroupCiliumEndpointV2:
 			if !k.kcfg.IsEnabled() {
-				k.k8sCiliumEndpointsWatcher.initCiliumEndpointOrSlices(ctx)
+				wg := &sync.WaitGroup{}
+				k.k8sCiliumEndpointsWatcher.initCiliumEndpointOrSlices(ctx, wg, k.clientset)
 			}
 		case k8sAPIGroupCiliumEndpointSliceV2Alpha1:
 			// no-op; handled in k8sAPIGroupCiliumEndpointV2
