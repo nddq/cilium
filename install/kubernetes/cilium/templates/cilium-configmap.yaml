@@ -1341,7 +1341,11 @@ data:
   mesh-auth-gc-interval: {{ include "validateDuration" .Values.authentication.gcInterval | quote }}
 
 {{- if .Values.authentication.mutual.spire.enabled }}
+  {{- if .Values.authentication.mutual.ztunnel.enabled }}
+  mesh-auth-mutual-enabled: "false"
+  {{- else }}
   mesh-auth-mutual-enabled: "true"
+  {{- end }}
   mesh-auth-mutual-listener-port: {{ .Values.authentication.mutual.port | quote }}
   mesh-auth-spire-agent-socket: {{ .Values.authentication.mutual.spire.agentSocketPath | quote }}
   mesh-auth-mutual-connect-timeout: {{ include "validateDuration" .Values.authentication.mutual.connectTimeout | quote }}
@@ -1354,7 +1358,13 @@ data:
   mesh-auth-spire-admin-socket: {{ .Values.authentication.mutual.spire.adminSocketPath | quote }}
   mesh-auth-spiffe-trust-domain: {{ .Values.authentication.mutual.spire.trustDomain | quote }}
 {{- end }}
-
+{{- if .Values.authentication.mutual.ztunnel.enabled }}
+  ztunnel-mtls-enabled: "true"
+  ztunnel-spire-agent-socket: {{ .Values.authentication.mutual.ztunnel.agentSocketPath | quote }}
+  ztunnel-spire-server-address: {{ .Values.authentication.mutual.ztunnel.serverAddress | quote }}
+  ztunnel-spire-server-connection-timeout: {{ .Values.authentication.mutual.ztunnel.connectionTimeout }}
+  ztunnel-spiffe-trust-domain: {{ .Values.authentication.mutual.ztunnel.trustDomain | quote }}
+{{- end }}
   proxy-xff-num-trusted-hops-ingress: {{ .Values.envoy.xffNumTrustedHopsL7PolicyIngress | quote }}
   proxy-xff-num-trusted-hops-egress: {{ .Values.envoy.xffNumTrustedHopsL7PolicyEgress | quote }}
   proxy-connect-timeout: {{ .Values.envoy.connectTimeoutSeconds | quote }}

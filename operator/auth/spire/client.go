@@ -23,6 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/cilium/cilium/operator/auth/identity"
+	"github.com/cilium/cilium/operator/auth/ztunnel/config"
 	"github.com/cilium/cilium/pkg/backoff"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/lock"
@@ -122,8 +123,8 @@ type Client struct {
 
 // NewClient creates a new SPIRE client.
 // If the mutual authentication is not enabled, it returns a noop client.
-func NewClient(params params, lc cell.Lifecycle, authCfg MutualAuthConfig, cfg ClientConfig, log *slog.Logger) identity.Provider {
-	if !authCfg.Enabled {
+func NewClient(params params, lc cell.Lifecycle, authCfg MutualAuthConfig, cfg ClientConfig, log *slog.Logger, zcfg config.ZtunnelConfig) identity.Provider {
+	if !authCfg.Enabled || zcfg.Enabled {
 		return &noopClient{}
 	}
 	client := &Client{

@@ -224,8 +224,8 @@ image:
   # type: [null, string]
   # @schema
   override: ~
-  repository: "quay.io/cilium/cilium-ci"
-  tag: "latest"
+  repository: "acnpublic.azurecr.io/cilium/cilium-dev"
+  tag: "enrollment@sha256:87bf06c986629ac0bc7a7d291c9ec0aa6e2c3682a2f5a60dde7f414a3ed817b8"
   pullPolicy: "Always"
   # cilium-digest
   digest: ""
@@ -419,7 +419,7 @@ aksbyocni:
   # -- Enable AKS BYOCNI integration.
   # Note that this is incompatible with AKS clusters not created in BYOCNI mode:
   # use Azure integration (`azure.enabled`) instead.
-  enabled: false
+  enabled: true
 # @schema
 # type: [boolean, string]
 # @schema
@@ -1042,9 +1042,9 @@ gatewayAPI:
 enableXTSocketFallback: true
 encryption:
   # -- Enable transparent network encryption.
-  enabled: false
+  enabled: true
   # -- Encryption method. Can be either ipsec or wireguard.
-  type: ipsec
+  type: ztunnel
   # -- Enable encryption for pure node to node traffic.
   # This option is only effective when encryption.type is set to "wireguard".
   nodeEncryption: false
@@ -2839,8 +2839,8 @@ operator:
     # type: [null, string]
     # @schema
     override: ~
-    repository: "quay.io/cilium/operator"
-    tag: "latest"
+    repository: "acnpublic.azurecr.io/cilium/operator"
+    tag: "enrollment@sha256:68b4524702de236d41f99535045b02c388b3c5751fe57d2f26af41b8ca057d56"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2851,7 +2851,7 @@ operator:
     alibabacloudDigest: ""
     useDigest: false
     pullPolicy: "Always"
-    suffix: "-ci"
+    suffix: ""
   # -- Number of replicas to run for the cilium-operator deployment
   replicas: 2
   # -- The priority class to use for cilium-operator
@@ -3903,7 +3903,7 @@ authentication:
     # Settings for SPIRE
     spire:
       # -- Enable SPIRE integration (beta)
-      enabled: false
+      enabled: true
       # -- Annotations to be added to all top-level spire objects (resources under templates/spire)
       annotations: {}
       # Settings to control the SPIRE installation and configuration
@@ -3912,9 +3912,9 @@ authentication:
         # This will only take effect only if authentication.mutual.spire.enabled is true
         enabled: true
         # -- SPIRE namespace to install into
-        namespace: cilium-spire
+        namespace: kube-system
         # -- SPIRE namespace already exists. Set to true if Helm should not create, manage, and import the SPIRE namespace.
-        existingNamespace: false
+        existingNamespace: true
         # -- init container image of SPIRE agent and server
         initImage:
           # @schema
@@ -4066,7 +4066,20 @@ authentication:
       # Example values: 10.0.0.1:8081, spire-server.cilium-spire.svc:8081
       serverAddress: ~
       # -- SPIFFE trust domain to use for fetching certificates
-      trustDomain: spiffe.cilium
+      trustDomain: cluster.local
+      # -- SPIRE socket path where the SPIRE delegated api agent is listening
+      adminSocketPath: /run/spire/sockets/admin.sock
+      # -- SPIRE socket path where the SPIRE workload agent is listening.
+      # Applies to both the Cilium Agent and Operator
+      agentSocketPath: /run/spire/sockets/agent/agent.sock
+      # -- SPIRE connection timeout
+      connectionTimeout: 30s
+    ztunnel:
+      serverAddress: spire-server.kube-system.svc:8081
+      # -- Enable ztunnel authentication (mutual TLS)
+      enabled: true
+      # -- SPIFFE trust domain to use for fetching certificates
+      trustDomain: cluster.local
       # -- SPIRE socket path where the SPIRE delegated api agent is listening
       adminSocketPath: /run/spire/sockets/admin.sock
       # -- SPIRE socket path where the SPIRE workload agent is listening.
