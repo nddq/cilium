@@ -85,6 +85,8 @@ func NewEndpointFromChangeModel(ctx context.Context, logger *slog.Logger, dnsRul
 	ep.K8sPodName = model.K8sPodName
 	ep.K8sNamespace = model.K8sNamespace
 	ep.K8sUID = model.K8sUID
+	ep.IPv4Enabled = model.IPv4Enabled
+	ep.IPv6Enabled = model.IPv6Enabled
 	ep.disableLegacyIdentifiers = model.DisableLegacyIdentifiers
 
 	if model.Mac != "" {

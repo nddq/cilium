@@ -91,6 +91,10 @@ type EndpointChangeRequest struct {
 	// Whether policy enforcement is enabled or not
 	PolicyEnabled bool `json:"policy-enabled,omitempty"`
 
+	IPv4Enabled bool `json:"ipv4-enabled,omitempty"`
+
+	IPv6Enabled bool `json:"ipv6-enabled,omitempty"`
+
 	// Properties is used to store information about the endpoint at creation. Useful for tests.
 	Properties map[string]interface{} `json:"properties,omitempty"`
 
