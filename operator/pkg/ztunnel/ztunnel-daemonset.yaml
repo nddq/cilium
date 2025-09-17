@@ -53,7 +53,7 @@ spec:
           valueFrom:
             fieldRef:
               apiVersion: v1
-              fieldPath: spec.nodeName
+              fieldPath: status.hostIP
         - name: INSTANCE_IP
           valueFrom:
             fieldRef:
