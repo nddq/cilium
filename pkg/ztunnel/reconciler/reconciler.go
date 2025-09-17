@@ -25,150 +25,93 @@ import (
 type params struct {
 	cell.In
 
-	DB               *statedb.DB
-	NamespaceTable   statedb.RWTable[*Namespace]
-	Logger           *slog.Logger
-	Lifecycle        cell.Lifecycle
-	EndpointManager  endpointmanager.EndpointManager
-	EndpointEnroller zds.EndpointEnroller
-	RestorerPromise  promise.Promise[endpointstate.Restorer]
+	DB                     *statedb.DB
+	EnrolledNamespaceTable statedb.RWTable[*EnrolledNamespace]
+	Logger                 *slog.Logger
+	Lifecycle              cell.Lifecycle
+	EndpointManager        endpointmanager.EndpointManager
+	EndpointEnroller       zds.EndpointEnroller
+	RestorerPromise        promise.Promise[endpointstate.Restorer]
 }
 
 type EnrollmentReconciler struct {
-	db                 *statedb.DB
-	logger             *slog.Logger
-	namespaceTable     statedb.RWTable[*Namespace]
-	endpointManager    endpointmanager.EndpointManager
-	endpointEnroller   zds.EndpointEnroller
-	restorerPromise    promise.Promise[endpointstate.Restorer]
-	initialized        chan struct{}
-	nsEnrollmentStatus map[string]bool // maps namespace name to enrollment status
+	db                     *statedb.DB
+	logger                 *slog.Logger
+	enrolledNamespaceTable statedb.RWTable[*EnrolledNamespace]
+	endpointManager        endpointmanager.EndpointManager
+	endpointEnroller       zds.EndpointEnroller
+	restorerPromise        promise.Promise[endpointstate.Restorer]
+	initialized            chan struct{}
 }
 
-func NewEnrollmentReconciler(cfg params) reconciler.Operations[*Namespace] {
+func NewEnrollmentReconciler(cfg params) reconciler.Operations[*EnrolledNamespace] {
 	ops := &EnrollmentReconciler{
-		logger:             cfg.Logger,
-		db:                 cfg.DB,
-		namespaceTable:     cfg.NamespaceTable,
-		endpointManager:    cfg.EndpointManager,
-		endpointEnroller:   cfg.EndpointEnroller,
-		restorerPromise:    cfg.RestorerPromise,
-		initialized:        make(chan struct{}),
-		nsEnrollmentStatus: make(map[string]bool),
+		logger:                 cfg.Logger,
+		db:                     cfg.DB,
+		enrolledNamespaceTable: cfg.EnrolledNamespaceTable,
+		endpointManager:        cfg.EndpointManager,
+		endpointEnroller:       cfg.EndpointEnroller,
+		restorerPromise:        cfg.RestorerPromise,
+		initialized:            make(chan struct{}),
 	}
 	cfg.Lifecycle.Append(ops)
 	return ops
 }
 
-func (ops *EnrollmentReconciler) Delete(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *Namespace) error {
+func (ops *EnrollmentReconciler) Update(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *EnrolledNamespace) error {
 	<-ops.initialized
-	if ns.Enrolled {
-		// Disenroll all endpoints in this namespace
-		endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
-		for _, ep := range endpoints {
-			if ep.GetContainerNetnsPath() == "" || strings.Contains(ep.K8sPodName, "ztunnel") {
-				continue
-			}
-			err := ops.endpointEnroller.DisenrollEndpoint(ep)
-			if err != nil {
-				ops.logger.Error("Failed to disenroll endpoint from ztunnel",
-					logfields.K8sNamespace, ns.Name,
-					logfields.Pod, ep.K8sPodName,
-					logfields.Error, err,
-				)
-				return err
-			}
+	// Enroll all endpoints in this namespace
+	endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
+	for _, ep := range endpoints {
+		if ep.GetContainerNetnsPath() == "" || strings.Contains(ep.K8sPodName, "ztunnel") {
+			continue
 		}
-		ops.logger.Info("Disenrolled all endpoints in namespace",
-			logfields.K8sNamespace, ns.Name,
-		)
-	}
-	return nil
-}
-
-// Prune unexpected entries.
-func (ops *EnrollmentReconciler) Prune(ctx context.Context, txn statedb.ReadTxn, objects iter.Seq2[*Namespace, statedb.Revision]) error {
-	return nil
-}
-
-func (ops *EnrollmentReconciler) Update(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *Namespace) error {
-	<-ops.initialized
-	// Check if namespace exists in state
-	nsCurrentEnrollmentStatus, found := ops.nsEnrollmentStatus[ns.Name]
-	if !found {
-		ops.nsEnrollmentStatus[ns.Name] = ns.Enrolled
-		// New namespace, handle enrollment if needed
-		if ns.Enrolled {
-			// Enroll all endpoints in this namespace
-			endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
-			for _, ep := range endpoints {
-				if ep.GetContainerNetnsPath() == "" || strings.Contains(ep.K8sPodName, "ztunnel") {
-					continue
-				}
-				err := ops.endpointEnroller.EnrollEndpoint(ep)
-				if err != nil {
-					ops.logger.Error("Failed to enroll endpoint to ztunnel",
-						logfields.K8sNamespace, ns.Name,
-						logfields.Pod, ep.K8sPodName,
-						logfields.Error, err,
-					)
-					return err
-				}
-			}
-			ops.logger.Info("Enrolled all endpoints in namespace", logfields.K8sNamespace, ns.Name)
-		}
-	} else {
-		// namespace already exists, check if enrollment status changed
-		if nsCurrentEnrollmentStatus != ns.Enrolled {
-			ops.nsEnrollmentStatus[ns.Name] = ns.Enrolled
-			if ns.Enrolled {
-				// Enroll all endpoints in this namespace
-				endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
-				for _, ep := range endpoints {
-					if ep.GetContainerNetnsPath() == "" || strings.Contains(ep.K8sPodName, "ztunnel") {
-						continue
-					}
-					err := ops.endpointEnroller.EnrollEndpoint(ep)
-					if err != nil {
-						ops.logger.Error("Failed to enroll endpoint to ztunnel",
-							logfields.K8sNamespace, ns.Name,
-							logfields.Pod, ep.K8sPodName,
-							logfields.Error, err,
-						)
-						return err
-					}
-				}
-				ops.logger.Info("Enrolled all endpoints in namespace", logfields.K8sNamespace, ns.Name)
-			} else {
-				// Disenroll all endpoints in this namespace
-				endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
-				for _, ep := range endpoints {
-					if ep.GetContainerNetnsPath() == "" || strings.Contains(ep.K8sPodName, "ztunnel") {
-						continue
-					}
-					err := ops.endpointEnroller.DisenrollEndpoint(ep)
-					if err != nil {
-						ops.logger.Error("Failed to disenroll endpoint from ztunnel",
-							logfields.K8sNamespace, ns.Name,
-							logfields.Pod, ep.K8sPodName,
-							logfields.Error, err,
-						)
-						return err
-					}
-				}
-				ops.logger.Info("Disenrolled all endpoints in namespace",
-					logfields.K8sNamespace, ns.Name,
-				)
-			}
+		err := ops.endpointEnroller.EnrollEndpoint(ep)
+		if err != nil {
+			ops.logger.Error("Failed to enroll endpoint to ztunnel",
+				logfields.K8sNamespace, ns.Name,
+				logfields.Pod, ep.K8sPodName,
+				logfields.Error, err,
+			)
+			return err
 		}
 	}
+	ops.logger.Info("Enrolled all endpoints in namespace", logfields.K8sNamespace, ns.Name)
 	return nil
 }
 
-var _ reconciler.Operations[*Namespace] = &EnrollmentReconciler{}
+func (ops *EnrollmentReconciler) Delete(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *EnrolledNamespace) error {
+	<-ops.initialized
+	// Disenroll all endpoints in this namespace
+	endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
+	for _, ep := range endpoints {
+		if ep.GetContainerNetnsPath() == "" || strings.Contains(ep.K8sPodName, "ztunnel") {
+			continue
+		}
+		err := ops.endpointEnroller.DisenrollEndpoint(ep)
+		if err != nil {
+			ops.logger.Error("Failed to disenroll endpoint from ztunnel",
+				logfields.K8sNamespace, ns.Name,
+				logfields.Pod, ep.K8sPodName,
+				logfields.Error, err,
+			)
+			return err
+		}
+	}
+	ops.logger.Info("Disenrolled all endpoints in namespace",
+		logfields.K8sNamespace, ns.Name,
+	)
+	return nil
+}
+
+func (ops *EnrollmentReconciler) Prune(ctx context.Context, txn statedb.ReadTxn, objects iter.Seq2[*EnrolledNamespace, statedb.Revision]) error {
+	return nil
+}
+
+var _ reconciler.Operations[*EnrolledNamespace] = &EnrollmentReconciler{}
 
 func (ops *EnrollmentReconciler) Start(ctx cell.HookContext) error {
-	_, initialized := ops.namespaceTable.Initialized(ops.db.ReadTxn())
+	_, initialized := ops.enrolledNamespaceTable.Initialized(ops.db.ReadTxn())
 	select {
 	case <-ctx.Done():
 		ops.logger.Info("Stopping reconciler")
@@ -199,8 +142,8 @@ func (ops *EnrollmentReconciler) Start(ctx cell.HookContext) error {
 		}
 		// Check if namespace is enrolled
 		txn := ops.db.ReadTxn()
-		nsEntry, _, found := ops.namespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
-		if !found || !nsEntry.Enrolled {
+		_, _, found := ops.enrolledNamespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
+		if !found {
 			ops.logger.Info("Skipping enrollment of endpoint in unenrolled namespace",
 				logfields.K8sNamespace, epNamespace,
 				logfields.Pod, ep.K8sPodName,
@@ -235,8 +178,8 @@ func (ops *EnrollmentReconciler) EndpointCreated(ep *endpoint.Endpoint) {
 	}
 	// Check if namespace is enrolled
 	txn := ops.db.ReadTxn()
-	nsEntry, _, found := ops.namespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
-	if !found || !nsEntry.Enrolled {
+	_, _, found := ops.enrolledNamespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
+	if !found {
 		ops.logger.Info("Skipping enrollment of endpoint in unenrolled namespace",
 			logfields.K8sNamespace, epNamespace,
 			logfields.Pod, ep.K8sPodName,
@@ -254,7 +197,6 @@ func (ops *EnrollmentReconciler) EndpointCreated(ep *endpoint.Endpoint) {
 }
 
 func (ops *EnrollmentReconciler) EndpointDeleted(ep *endpoint.Endpoint, _ endpoint.DeleteConfig) {
-	<-ops.initialized
 	epNamespace := ep.GetK8sNamespace()
 	// If namespace is not enrolled or endpoint has no netns path or is ztunnel itself, skip
 	if epNamespace == "" || ep.GetContainerNetnsPath() == "" || strings.Contains(ep.K8sPodName, "ztunnel") {
@@ -262,8 +204,8 @@ func (ops *EnrollmentReconciler) EndpointDeleted(ep *endpoint.Endpoint, _ endpoi
 	}
 	// Check if namespace is enrolled
 	txn := ops.db.ReadTxn()
-	nsEntry, _, found := ops.namespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
-	if !found || !nsEntry.Enrolled {
+	_, _, found := ops.enrolledNamespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
+	if !found {
 		ops.logger.Info("Skipping disenrollment of endpoint in unenrolled namespace",
 			logfields.K8sNamespace, epNamespace,
 			logfields.Pod, ep.K8sPodName,

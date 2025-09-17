@@ -382,7 +382,7 @@ func (s *Server) InitialSnapshot(eps ...*endpoint.Endpoint) error {
 		}
 
 		if err = ns.Do(func() error {
-			return iptables.CreateInPodRules(s.logger, ep.IPv4Enabled, ep.IPv6Enabled)
+			return iptables.CreateInPodRules(s.logger, option.Config.EnableIPv4, option.Config.EnableIPv6)
 		}); err != nil {
 			return fmt.Errorf("unable to setup iptable rules for ztunnel inpod mode: %w", err)
 		}

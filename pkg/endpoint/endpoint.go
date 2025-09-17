@@ -2727,3 +2727,7 @@ func (e *Endpoint) isProperty(propertyKey string) bool {
 func (e *Endpoint) GetContainerNetnsPath() string {
 	return e.containerNetnsPath
 }
+
+func (e *Endpoint) SetContainerNetnsPath(path string) {
+	e.containerNetnsPath = path
+}
