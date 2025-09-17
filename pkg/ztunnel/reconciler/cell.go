@@ -4,7 +4,7 @@
 package reconciler
 
 import (
-	"time"
+	"github.com/cilium/cilium/daemon/k8s"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/statedb"
@@ -14,11 +14,6 @@ import (
 var Cell = cell.Module(
 	"enrollment-reconciler",
 	"Reconciler for namespace enrollment for ztunnel mTLS",
-	cell.Provide(reconciler.NewExpVarMetrics),
-	cell.Provide(
-		NewEnrolledNamespacesTable,
-		NewEnrollmentReconciler,
-	),
 	cell.Invoke(registerEnrollmentReconciler),
 )
 
@@ -26,8 +21,12 @@ func registerEnrollmentReconciler(
 	params reconciler.Params,
 	ops reconciler.Operations[*Namespace],
 	tbl statedb.RWTable[*Namespace],
-	m *reconciler.ExpVarMetrics,
+	deriveParams statedb.DeriveParams[k8s.Namespace, *Namespace],
 ) error {
+	// Start deriving Table[*Namespace] from Table[*k8s.Namespace]
+	statedb.Derive("derive-desired-mtls-namespace-enrollments", defaultNamespaceToEnrolledNamespace)(
+		deriveParams,
+	)
 	_, err := reconciler.Register(
 		params,
 		tbl,
@@ -36,13 +35,29 @@ func registerEnrollmentReconciler(
 		(*Namespace).GetStatus,
 		ops,
 		nil, // no batch operations support
-
-		reconciler.WithMetrics(m),
-		reconciler.WithPruning(time.Minute),
-		reconciler.WithRefreshing(time.Minute, nil),
+		reconciler.WithoutPruning(),
 	)
 	if err != nil {
 		return err
 	}
 	return nil
+}
+
+func defaultNamespaceToEnrolledNamespace(ns k8s.Namespace, deleted bool) (*Namespace, statedb.DeriveResult) {
+	enrolled := true
+	if mtlsValue, exists := ns.Labels["mtls-enabled"]; !exists || mtlsValue != "true" {
+		enrolled = false
+	}
+	if deleted {
+		return &Namespace{
+			Name:     ns.Name,
+			Enrolled: enrolled,
+			Status:   reconciler.StatusPending(),
+		}, statedb.DeriveDelete
+	}
+	return &Namespace{
+		Name:     ns.Name,
+		Enrolled: enrolled,
+		Status:   reconciler.StatusPending(),
+	}, statedb.DeriveInsert
 }

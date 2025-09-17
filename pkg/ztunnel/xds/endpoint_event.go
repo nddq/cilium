@@ -62,13 +62,13 @@ func (c EndpointEventCollection) ToDeltaDiscoveryResponse() *v3.DeltaDiscoveryRe
 			// ztunnel uses a very stripped down representation of a Resource
 			// see: https://github.com/istio/ztunnel/blob/58cf2a0f943ffc23c32d889018428ddfa6175144/src/xds/client.rs#L773
 			res := &v3.Resource{
-				Name:     string(event.GetOwnerReferences()[0].UID),
+				Name:     string(event.UID),
 				Resource: anyPBAddr,
 			}
 
 			createResources = append(createResources, res)
 		case REMOVED:
-			removedNames = append(removedNames, string(event.GetOwnerReferences()[0].UID))
+			removedNames = append(removedNames, string(event.UID))
 		}
 	}
 
@@ -127,7 +127,7 @@ func (e *EndpointEvent) ToXDSAddress() (*workloadapi.Address, error) {
 	}
 
 	w := &workloadapi.Workload{
-		Uid: string(e.GetOwnerReferences()[0].UID),
+		Uid: string(e.UID),
 		// TODO(hemanthmalla) Convert this field to node name.
 		// zTunnel will match this with it's own node name.
 		Node:           e.Networking.NodeIP,

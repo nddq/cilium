@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/types"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/node"
 )
 
 type StreamProcessorParams struct {
@@ -65,10 +66,20 @@ func NewStreamProcessor(params *StreamProcessorParams) *StreamProcessor {
 }
 
 func (sp *StreamProcessor) SubscribeToEndpointEvents() {
+	// Get the local node IP for filtering
+	localNodeIP := node.GetCiliumEndpointNodeIP(sp.log)
 
 	// TODO(hemanthmalla): How should retries be configured here ?
 	newEvents := sp.K8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Events(context.TODO(), resource.WithErrorHandler(resource.AlwaysRetry))
-	for e := range newEvents {
+	for e := range newEvents { // Filter out local endpoints
+		if e.Object == nil {
+			e.Done(nil)
+			continue
+		}
+		if e.Object.Networking != nil && e.Object.Networking.NodeIP == localNodeIP {
+			e.Done(nil)
+			continue
+		}
 		switch e.Kind {
 		case resource.Upsert:
 			sp.endpointRecv <- &EndpointEvent{
@@ -99,8 +110,20 @@ func (sp *StreamProcessor) ListAllEndpoints() ([]*types.CiliumEndpoint, error) {
 		sp.log.Debug("initialized new stream for resource")
 		return nil, fmt.Errorf("failed to get CiliumEndpoint store from K8sCiliumEndpointsWatcher: %v", err)
 	}
-	eps := cepStore.List()
-	return eps, nil
+	// Get the local node IP for filtering
+	localNodeIP := node.GetCiliumEndpointNodeIP(sp.log)
+
+	allEps := cepStore.List()
+	// Filter to only include endpoints that don't belong to this node
+	filteredEps := make([]*types.CiliumEndpoint, 0, len(allEps))
+	for _, ep := range allEps {
+		if ep.Networking != nil && ep.Networking.NodeIP == localNodeIP {
+			continue
+		}
+		filteredEps = append(filteredEps, ep)
+	}
+
+	return filteredEps, nil
 }
 
 // handleAddressTypeURL handles a subscription for xdsTypeURLAddress type URLs.
