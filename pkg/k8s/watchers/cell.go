@@ -4,9 +4,12 @@
 package watchers
 
 import (
+	"context"
 	"log/slog"
+	"sync"
 
 	"github.com/cilium/hive/cell"
+	"k8s.io/client-go/tools/cache"
 
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	k8sSynced "github.com/cilium/cilium/pkg/k8s/synced"
@@ -50,8 +53,15 @@ type k8sWatcherParams struct {
 	KVStoreClient kvstore.Client
 }
 
-func newK8sWatcher(params k8sWatcherParams) *K8sWatcher {
-	return newWatcher(
+type k8sWatcherOut struct {
+	cell.Out
+
+	K8sWatcher *K8sWatcher
+	CiliumEndpointStore *cache.SharedIndexInformer
+}
+
+func newK8sWatcher(params k8sWatcherParams) k8sWatcherOut {
+	w := newWatcher(
 		params.Logger,
 		params.ResourceGroupsFn,
 		params.Clientset,
@@ -65,4 +75,10 @@ func newK8sWatcher(params k8sWatcherParams) *K8sWatcher {
 		params.AgentConfig,
 		params.KVStoreClient,
 	)
+	wg := sync.WaitGroup{}
+	cepStore := provideCiliumEndpointStore(context.TODO(), &wg, params.Clientset)
+	// wg.Wait()
+	w.logger.Info("CiliumEndpoint informer cache provided. Store :")
+	w.logger.Info("CiliumEndpointStore nil status", slog.Bool("isNil", cepStore == nil))
+	return k8sWatcherOut{K8sWatcher: w, CiliumEndpointStore: cepStore}
 }

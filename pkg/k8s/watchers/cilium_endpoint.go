@@ -14,7 +14,6 @@ import (
 	"sync/atomic"
 
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
-	"github.com/cilium/cilium/pkg/k8s/informer"
 	"github.com/cilium/hive/cell"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
@@ -52,7 +51,7 @@ type k8sCiliumEndpointsWatcherParams struct {
 	PolicyUpdater       *policy.Updater
 	IPCache             *ipcache.IPCache
 	WgConfig            wgTypes.WireguardConfig
-	CiliumEndpointStore cache.Indexer
+	// CiliumEndpointStore cache.Indexer
 }
 
 func newK8sCiliumEndpointsWatcher(params k8sCiliumEndpointsWatcherParams) *K8sCiliumEndpointsWatcher {
@@ -65,7 +64,7 @@ func newK8sCiliumEndpointsWatcher(params k8sCiliumEndpointsWatcherParams) *K8sCi
 		policyManager:       params.PolicyUpdater,
 		ipcache:             params.IPCache,
 		wgConfig:            params.WgConfig,
-		CiliumEndpointStore: params.CiliumEndpointStore,
+		// CiliumEndpointStore: params.CiliumEndpointStore,
 	}
 }
 
@@ -124,6 +123,7 @@ func identityIndexFunc(obj any) ([]string, error) {
 func transformToCiliumEndpoint(obj any) (any, error) {
 	switch concreteObj := obj.(type) {
 	case *cilium_api_v2.CiliumEndpoint:
+		slog.Info("Transforming CiliumEndpoint for store", slog.String("cep", concreteObj.Name))
 		p := &cilium_api_v2.CiliumEndpoint{
 			TypeMeta: concreteObj.TypeMeta,
 			ObjectMeta: metav1.ObjectMeta{
@@ -176,25 +176,7 @@ func transformToCiliumEndpoint(obj any) (any, error) {
 
 func (k *K8sCiliumEndpointsWatcher) ciliumEndpointsInit(ctx context.Context, wg *sync.WaitGroup, clientset k8sClient.Clientset) {
 	var synced atomic.Bool
-	const identityIndex = "identity"
-	var (
-		indexers = cache.Indexers{
-			cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
-			identityIndex:        identityIndexFunc,
-		}
 
-		// CiliumEndpointStore contains all CiliumEndpoint present in k8s.
-		// Warning: The CiliumEndpoints stored in the cache are not intended to be
-		// used for Update operations in k8s as some of its fields were are not
-		// populated.
-		CiliumEndpointStore cache.Indexer
-
-		// CiliumEndpointsSynced is closed once the CiliumEndpointStore is synced
-		// with k8s.
-		CiliumEndpointsSynced = make(chan struct{})
-		// once is used to make sure CiliumEndpointsInit is only setup once.
-		once sync.Once
-	)
 
 	k.k8sResourceSynced.BlockWaitGroupToSyncResources(
 		ctx.Done(),
@@ -225,17 +207,42 @@ func (k *K8sCiliumEndpointsWatcher) ciliumEndpointsInit(ctx context.Context, wg 
 		}
 	}()
 
-	once.Do(func() {
-		CiliumEndpointStore = cache.NewIndexer(cache.DeletionHandlingMetaNamespaceKeyFunc, indexers)
 
-		ciliumEndpointInformer := informer.NewInformerWithStore(
+}
+
+func provideCiliumEndpointStore(ctx context.Context, wg *sync.WaitGroup,clientset k8sClient.Clientset) *cache.SharedIndexInformer {
+	const identityIndex = "identity"
+	var (
+		indexers = cache.Indexers{
+			cache.NamespaceIndex: cache.MetaNamespaceIndexFunc,
+			identityIndex:        identityIndexFunc,
+		}
+
+		// CiliumEndpointStore contains all CiliumEndpoint present in k8s.
+		// Warning: The CiliumEndpoints stored in the cache are not intended to be
+		// used for Update operations in k8s as some of its fields were are not
+		// populated.
+		ciliumEndpointInformer cache.SharedIndexInformer
+
+		// CiliumEndpointsSynced is closed once the CiliumEndpointStore is synced
+		// with k8s.
+		CiliumEndpointsSynced = make(chan struct{})
+		// once is used to make sure CiliumEndpointsInit is only setup once.
+		once sync.Once
+	)
+	once.Do(func() {
+		// CiliumEndpointStore = cache.NewIndexer(cache.DeletionHandlingMetaNamespaceKeyFunc, indexers)
+
+		ciliumEndpointInformer = cache.NewSharedIndexInformer(
 			utils.ListerWatcherFromTyped[*cilium_api_v2.CiliumEndpointList](clientset.CiliumV2().CiliumEndpoints("")),
 			&cilium_api_v2.CiliumEndpoint{},
 			0,
-			cache.ResourceEventHandlerFuncs{},
-			transformToCiliumEndpoint,
-			CiliumEndpointStore,
+			// cache.ResourceEventHandlerFuncs{},
+			// Figure out a way to handle transformation with shared informer
+			// transformToCiliumEndpoint,
+			indexers,
 		)
+
 
 		wg.Add(1)
 		go func() {
@@ -246,7 +253,10 @@ func (k *K8sCiliumEndpointsWatcher) ciliumEndpointsInit(ctx context.Context, wg 
 		cache.WaitForCacheSync(ctx.Done(), ciliumEndpointInformer.HasSynced)
 		close(CiliumEndpointsSynced)
 	})
+	return &ciliumEndpointInformer
 }
+
+
 
 func (k *K8sCiliumEndpointsWatcher) endpointUpdated(oldEndpoint, endpoint *types.CiliumEndpoint) {
 	var namedPortsChanged bool

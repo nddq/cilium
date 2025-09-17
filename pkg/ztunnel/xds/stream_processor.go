@@ -5,10 +5,12 @@ import (
 	"log/slog"
 
 	v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	cilium_api_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 )
 
 // StreamProcessor acts as a endpointmanager.Subscriber
@@ -25,6 +27,7 @@ type StreamProcessorParams struct {
 	EndpointEventRecv chan *EndpointEvent
 	EndpointManager   endpointmanager.EndpointManager
 	Log               *slog.Logger
+	CiliumEndpointStore *cache.SharedIndexInformer
 }
 
 // StreamProcessor implements the logic for handling xDS streams to zTunnel.
@@ -36,6 +39,7 @@ type StreamProcessor struct {
 	streamRecv      chan *v3.DeltaDiscoveryRequest
 	endpointRecv    chan *EndpointEvent
 	endpointManager endpointmanager.EndpointManager
+	CiliumEndpointStore *cache.SharedIndexInformer
 	
 	expectedNonce   map[string]struct{}
 	log             *slog.Logger
@@ -48,6 +52,7 @@ func NewStreamProcessor(params *StreamProcessorParams) *StreamProcessor {
 		endpointRecv:    params.EndpointEventRecv,
 		endpointManager: params.EndpointManager,
 		log:             params.Log,
+		CiliumEndpointStore: params.CiliumEndpointStore,
 		expectedNonce:   make(map[string]struct{}),
 	}
 	return sp
@@ -74,12 +79,31 @@ func (sp *StreamProcessor) handleAddressTypeURL(req *v3.DeltaDiscoveryRequest) e
 	}
 
 	collection := &EndpointEventCollection{}
-	eps := sp.endpointManager.GetEndpoints()
+	// eps := sp.endpointManager.GetEndpoints()
+
+	if sp.CiliumEndpointStore == nil {
+		sp.log.Debug("initialized new stream for resource")
+		return fmt.Errorf("CiliumEndpoint store is not initialized")
+	}
+	st := *sp.CiliumEndpointStore
+	
+
+	var ceps []*cilium_api_v2.CiliumEndpoint
+	for _, obj := range st.GetStore().List() {
+		if cep, ok := obj.(*cilium_api_v2.CiliumEndpoint); ok {
+			if cep != nil {
+				sp.log.Debug("Found CEP", slog.String("pod_name", cep.Name))
+				ceps = append(ceps, cep)
+			}
+		}
+	}
 
 	// TODO: we need to filter our ztunnel instance itself.
-	collection.AppendEndpoints(CREATE, eps)
+	// collection.AppendEndpoints(CREATE, eps)
+	collection.AppendCiliumEndpoints(CREATE_CEP, ceps)
 
 	resp := collection.ToDeltaDiscoveryResponse()
+	sp.log.Debug("Sending initial DeltaDiscoveryResponse", slog.String("resp", resp.String()))
 	if err := sp.stream.SendMsg(resp); err != nil {
 		return err
 	}
@@ -89,7 +113,54 @@ func (sp *StreamProcessor) handleAddressTypeURL(req *v3.DeltaDiscoveryRequest) e
 	sp.expectedNonce[resp.Nonce] = struct{}{}
 
 	// subscribe to endpoint manager
-	sp.endpointManager.Subscribe(sp)
+	// sp.endpointManager.Subscribe(sp)
+
+	shareInformer := *(sp.CiliumEndpointStore)
+	shareInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj any) {
+			if cep, ok := obj.(*cilium_api_v2.CiliumEndpoint); ok {
+				if cep != nil {
+					sp.log.Debug("CEP Add event", slog.String("pod_name", cep.Name))
+					collection := &EndpointEventCollection{}
+					collection.AppendCiliumEndpoints(CREATE_CEP, []*cilium_api_v2.CiliumEndpoint{cep})
+					resp := collection.ToDeltaDiscoveryResponse()
+					sp.log.Debug("Sending DeltaDiscoveryResponse", slog.String("resp", resp.String()))
+					sp.expectedNonce[resp.Nonce] = struct{}{}
+					if err := sp.stream.SendMsg(resp); err != nil {
+						sp.log.Error("Failed to send CEP Add event", logfields.Error, err)
+					}
+				}
+			}
+		},
+		UpdateFunc: func(oldObj, newObj any) {
+			if cep, ok := newObj.(*cilium_api_v2.CiliumEndpoint); ok {
+				if cep != nil {
+					sp.log.Debug("CEP Update event", slog.String("pod_name", cep.Name))
+					collection := &EndpointEventCollection{}
+					collection.AppendCiliumEndpoints(CREATE_CEP, []*cilium_api_v2.CiliumEndpoint{cep})
+					resp := collection.ToDeltaDiscoveryResponse()
+					sp.expectedNonce[resp.Nonce] = struct{}{}
+					if err := sp.stream.SendMsg(resp); err != nil {
+						sp.log.Error("Failed to send CEP Update event", logfields.Error, err)
+					}
+				}
+			}
+		},
+		DeleteFunc: func(obj any) {
+			if cep, ok := obj.(*cilium_api_v2.CiliumEndpoint); ok {
+				if cep != nil {
+					sp.log.Debug("CEP Delete event", slog.String("pod_name", cep.Name))
+					collection := &EndpointEventCollection{}
+					collection.AppendCiliumEndpoints(REMOVED_CEP, []*cilium_api_v2.CiliumEndpoint{cep})
+					resp := collection.ToDeltaDiscoveryResponse()
+					sp.expectedNonce[resp.Nonce] = struct{}{}
+					if err := sp.stream.SendMsg(resp); err != nil {
+						sp.log.Error("Failed to send CEP Delete event", logfields.Error, err)
+					}
+				}
+			}
+		},
+	})
 
 	sp.log.Debug("initialized new stream for resource", logfields.Resource, xdsTypeURLAddress)
 

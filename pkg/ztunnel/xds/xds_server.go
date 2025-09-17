@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"istio.io/api/security/v1alpha1"
+	"k8s.io/client-go/tools/cache"
 
 	v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 
@@ -66,19 +67,22 @@ type Server struct {
 	g         *grpc.Server
 	log       *slog.Logger
 	epManager endpointmanager.EndpointManager
+	ciliumEndpointStore *cache.SharedIndexInformer
 	caCert    *x509.Certificate
 	// cache the PEM encoded certificate, we return this as the trust anchor
 	// on zTunnel certificate creation requests.
 	caCertPEM string
 	caKey     *rsa.PrivateKey
+
 	v1alpha1.UnimplementedIstioCertificateServiceServer
 	v3.UnimplementedAggregatedDiscoveryServiceServer
 }
 
-func newServer(log *slog.Logger, epManager endpointmanager.EndpointManager) (*Server, error) {
+func newServer(log *slog.Logger, epManager endpointmanager.EndpointManager, ciliumEndpointStore *cache.SharedIndexInformer) (*Server, error) {
 	x := &Server{
-		log:       log,
-		epManager: epManager,
+		log:                log,
+		epManager:          epManager,
+		ciliumEndpointStore: ciliumEndpointStore,
 	}
 	return x, nil
 }
@@ -364,8 +368,11 @@ func (x *Server) DeltaAggregatedResources(stream v3.AggregatedDiscoveryService_D
 		EndpointEventRecv: make(chan *EndpointEvent, 1024),
 		EndpointManager:   x.epManager,
 		Log:               x.log,
+		CiliumEndpointStore: x.ciliumEndpointStore,
 	}
-
+	if params.CiliumEndpointStore == nil {
+		x.log.Warn("CiliumEndpoint store is not initialized in xds_server")
+	}
 	x.log.Debug("begin processing DeltaAggregatedResources stream")
 	sp := NewStreamProcessor(&params)
 	// blocks until stream's context is killed.

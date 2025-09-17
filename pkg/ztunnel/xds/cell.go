@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/cilium/hive/cell"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -24,6 +25,7 @@ type xdsServerParams struct {
 	Logger    *slog.Logger
 	EPManager endpointmanager.EndpointManager
 	Config    config.Config
+	CiliumEndpointStore *cache.SharedIndexInformer
 }
 
 func NewServer(params xdsServerParams) (*Server, error) {
@@ -31,7 +33,7 @@ func NewServer(params xdsServerParams) (*Server, error) {
 		return nil, nil
 	}
 
-	server, err := newServer(params.Logger, params.EPManager)
+	server, err := newServer(params.Logger, params.EPManager, params.CiliumEndpointStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ztunnel gRPC server: %w", err)
 	}
