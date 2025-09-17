@@ -56,10 +56,9 @@ func setupZDSTestSuite(t *testing.T) *Server {
 
 	// Create the server instance. The hivetest lifecycle will start it automatically.
 	server := newZDSServer(serverParams{
-		Config:          config.Config{ZDSUnixAddr: zdsTestUnixAddress},
-		Lifecycle:       hivetest.Lifecycle(t),
-		Logger:          logger,
-		RestorerPromise: &fakeRestorer{},
+		Config:    config.Config{ZDSUnixAddr: zdsTestUnixAddress},
+		Lifecycle: hivetest.Lifecycle(t),
+		Logger:    logger,
 	})
 	require.NotNil(t, server.Server)
 	require.NotNil(t, server.Server.l, "server listener should be initialized")

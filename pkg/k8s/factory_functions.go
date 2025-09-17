@@ -138,6 +138,7 @@ func TransformToCiliumEndpoint(obj any) (any, error) {
 				Namespace:       concreteObj.ObjectMeta.Namespace,
 				UID:             concreteObj.ObjectMeta.UID,
 				ResourceVersion: concreteObj.ObjectMeta.ResourceVersion,
+				OwnerReferences: slim_metav1.SlimOwnerReferences(concreteObj.ObjectMeta.OwnerReferences),
 				// We don't need to store labels nor annotations because
 				// they are not used by the CEP handlers.
 				Labels:      nil,
@@ -174,6 +175,7 @@ func TransformToCiliumEndpoint(obj any) (any, error) {
 					Namespace:       ciliumEndpoint.ObjectMeta.Namespace,
 					UID:             ciliumEndpoint.ObjectMeta.UID,
 					ResourceVersion: ciliumEndpoint.ObjectMeta.ResourceVersion,
+					OwnerReferences: slim_metav1.SlimOwnerReferences(ciliumEndpoint.ObjectMeta.OwnerReferences),
 					// We don't need to store labels nor annotations because
 					// they are not used by the CEP handlers.
 					Labels:      nil,

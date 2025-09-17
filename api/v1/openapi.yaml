@@ -1310,12 +1310,6 @@ definitions:
           Useful for tests.
         additionalProperties:
           type: object
-      ipv4-enabled:
-        description: Whether IPv4 policy is enabled
-        type: boolean
-      ipv6-enabled:
-        description: Whether IPv6 policy is enabled
-        type: boolean
       container-netns-path:
         description: Path of Container Netns
         type: string

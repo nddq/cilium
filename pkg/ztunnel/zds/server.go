@@ -20,11 +20,10 @@ import (
 
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
-	"github.com/cilium/cilium/pkg/endpointstate"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/netns"
-	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/ztunnel/config"
 	"github.com/cilium/cilium/pkg/ztunnel/iptables"
 )
@@ -105,7 +104,7 @@ func endpointToWorkload(ep *endpoint.Endpoint) *zdsapi.AddWorkload {
 			Name:           name,
 			ServiceAccount: svcAccount,
 		},
-		Uid: ep.GetK8sUID(),
+		Uid: string(ep.GetPod().GetUID()),
 	}
 }
 
@@ -121,7 +120,6 @@ type serverParams struct {
 	Config    config.Config
 
 	EndpointManager endpointmanager.EndpointManager
-	RestorerPromise promise.Promise[endpointstate.Restorer]
 }
 
 type serverOut struct {
@@ -146,8 +144,6 @@ type Server struct {
 	endpointCache      map[uint16]*endpoint.Endpoint
 	endpointCacheMutex lock.Mutex
 
-	restorerPromise promise.Promise[endpointstate.Restorer]
-
 	zc            *ztunnelConn // active connection
 	zcInitialized chan struct{}
 	activeMu      lock.Mutex // serialized access to active zc
@@ -165,7 +161,6 @@ func newZDSServer(p serverParams) serverOut {
 	server := &Server{
 		logger:              p.Logger,
 		updates:             make(chan zdsUpdate, 100),
-		restorerPromise:     p.RestorerPromise,
 		endpointCache:       make(map[uint16]*endpoint.Endpoint),
 		initialSnapshotSent: make(chan struct{}),
 		zcInitialized:       make(chan struct{}),
@@ -195,15 +190,6 @@ func newZDSServer(p serverParams) serverOut {
 				return fmt.Errorf("failed to listen on ztunnel unix addr: %w", err)
 			}
 
-			restorer, err := p.RestorerPromise.Await(ctx)
-			if err != nil {
-				return fmt.Errorf("failed to await restorer: %w", err)
-			}
-			// Wait for endpoint restore to complete before getting endpoints.
-			// This is to ensure that we don't miss any endpoints that are restored from disk.
-			if err := restorer.WaitForEndpointRestore(ctx); err != nil {
-				return fmt.Errorf("failed to wait for endpoint restore: %w", err)
-			}
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -322,7 +308,7 @@ func (s *Server) EnrollEndpoint(ep *endpoint.Endpoint) error {
 	}
 
 	if err = ns.Do(func() error {
-		return iptables.CreateInPodRules(s.logger, ep.IPv4Enabled, ep.IPv6Enabled)
+		return iptables.CreateInPodRules(s.logger, option.Config.EnableIPv4, option.Config.EnableIPv6)
 	}); err != nil {
 		return fmt.Errorf("unable to setup iptable rules for ztunnel inpod mode: %w", err)
 	}
@@ -342,7 +328,7 @@ func (s *Server) DisenrollEndpoint(ep *endpoint.Endpoint) error {
 	req := &zdsapi.WorkloadRequest{
 		Payload: &zdsapi.WorkloadRequest_Del{
 			Del: &zdsapi.DelWorkload{
-				Uid: ep.GetK8sUID(),
+				Uid: string(ep.GetPod().GetUID()),
 			},
 		},
 	}
@@ -357,7 +343,7 @@ func (s *Server) DisenrollEndpoint(ep *endpoint.Endpoint) error {
 	}
 
 	if err = ns.Do(func() error {
-		return iptables.DeleteInPodRules(s.logger, ep.IPv4Enabled, ep.IPv6Enabled)
+		return iptables.DeleteInPodRules(s.logger, option.Config.EnableIPv4, option.Config.EnableIPv6)
 	}); err != nil {
 		return fmt.Errorf("unable to remove iptable rules for ztunnel inpod mode: %w", err)
 	}

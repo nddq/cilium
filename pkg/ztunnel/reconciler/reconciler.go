@@ -5,13 +5,16 @@ package reconciler
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"log/slog"
 	"strings"
 
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
+	"github.com/cilium/cilium/pkg/endpointstate"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/promise"
 	"github.com/cilium/cilium/pkg/ztunnel/zds"
 
 	"github.com/cilium/hive/cell"
@@ -28,6 +31,7 @@ type params struct {
 	Lifecycle        cell.Lifecycle
 	EndpointManager  endpointmanager.EndpointManager
 	EndpointEnroller zds.EndpointEnroller
+	RestorerPromise  promise.Promise[endpointstate.Restorer]
 }
 
 type EnrollmentReconciler struct {
@@ -36,6 +40,7 @@ type EnrollmentReconciler struct {
 	namespaceTable   statedb.RWTable[*Namespace]
 	endpointManager  endpointmanager.EndpointManager
 	endpointEnroller zds.EndpointEnroller
+	restorerPromise  promise.Promise[endpointstate.Restorer]
 	initialized      chan struct{}
 }
 
@@ -46,6 +51,7 @@ func NewEnrollmentReconciler(cfg params) reconciler.Operations[*Namespace] {
 		namespaceTable:   cfg.NamespaceTable,
 		endpointManager:  cfg.EndpointManager,
 		endpointEnroller: cfg.EndpointEnroller,
+		restorerPromise:  cfg.RestorerPromise,
 		initialized:      make(chan struct{}),
 	}
 	cfg.Lifecycle.Append(ops)
@@ -143,6 +149,16 @@ func (ops *EnrollmentReconciler) Start(ctx cell.HookContext) error {
 	}
 	ops.logger.Info("EnrolledNamespace table initialized")
 
+	restorer, err := ops.restorerPromise.Await(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to await restorer: %w", err)
+	}
+	// Wait for endpoint restore to complete before getting endpoints.
+	// This is to ensure that we don't miss any endpoints that are restored from disk.
+	if err := restorer.WaitForEndpointRestore(ctx); err != nil {
+		return fmt.Errorf("failed to wait for endpoint restore: %w", err)
+	}
+
 	ops.endpointManager.Subscribe(ops)
 	// Get endpoints for initial snapshot
 	endpoints := ops.endpointManager.GetEndpoints()
@@ -165,7 +181,7 @@ func (ops *EnrollmentReconciler) Start(ctx cell.HookContext) error {
 		}
 		endpointsToEnroll = append(endpointsToEnroll, ep)
 	}
-	err := ops.endpointEnroller.InitialSnapshot(endpointsToEnroll...)
+	err = ops.endpointEnroller.InitialSnapshot(endpointsToEnroll...)
 	if err != nil {
 		ops.logger.Error("Failed to send initial snapshot to ztunnel", logfields.Error, err)
 		return err
@@ -236,9 +252,7 @@ func (ops *EnrollmentReconciler) EndpointDeleted(ep *endpoint.Endpoint, _ endpoi
 	}
 }
 
-func (ops *EnrollmentReconciler) EndpointRestored(ep *endpoint.Endpoint) {
-	<-ops.initialized
-}
+func (ops *EnrollmentReconciler) EndpointRestored(ep *endpoint.Endpoint) {}
 
 var _ cell.HookInterface = &EnrollmentReconciler{}
 var _ endpointmanager.Subscriber = &EnrollmentReconciler{}
