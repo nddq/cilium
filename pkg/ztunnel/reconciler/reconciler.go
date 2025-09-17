@@ -104,6 +104,7 @@ func (ops *EnrollmentReconciler) Delete(ctx context.Context, txn statedb.ReadTxn
 	return nil
 }
 
+// Prune unexpected entries.
 func (ops *EnrollmentReconciler) Prune(ctx context.Context, txn statedb.ReadTxn, objects iter.Seq2[*EnrolledNamespace, statedb.Revision]) error {
 	return nil
 }
