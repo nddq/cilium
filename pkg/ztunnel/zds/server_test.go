@@ -17,6 +17,7 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/testutils"
+	"github.com/cilium/cilium/pkg/ztunnel/config"
 )
 
 var (
@@ -38,17 +39,16 @@ func setupZDSTestSuite(t *testing.T) *Server {
 	logger := hivetest.Logger(t)
 
 	// Create the server instance. The hivetest lifecycle will start it automatically.
-	server, err := newZDSServer(serverParams{
-		Config:          Config{UnixAddr: zdsTestUnixAddress},
+	server := newZDSServer(serverParams{
+		Config:          config.Config{ZDSUnixAddr: zdsTestUnixAddress},
 		Lifecycle:       hivetest.Lifecycle(t),
 		Logger:          logger,
 		EndpointManager: endpointmanager.New(logger, nil, &dummyEpSynchronizer{}, nil, nil, nil),
 	})
-	require.NoError(t, err)
 	require.NotNil(t, server)
 	require.NotNil(t, server.l, "server listener should be initialized")
 
-	return server
+	return server.Server
 }
 
 func newAddUpdateRequest(uid string) zdsUpdate {

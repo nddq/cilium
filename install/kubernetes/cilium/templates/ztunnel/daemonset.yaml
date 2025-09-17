@@ -1,3 +1,4 @@
+{{- if and .Values.encryption.enabled (eq .Values.encryption.type "ztunnel") }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -144,3 +145,4 @@ spec:
       maxSurge: 1
       maxUnavailable: 0
     type: RollingUpdate
+{{- end }}

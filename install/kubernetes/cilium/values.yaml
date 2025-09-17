@@ -224,9 +224,8 @@ image:
   # type: [null, string]
   # @schema
   override: ~
-  repository: "quay.io/cilium/cilium-ci"
-  tag: "latest"
-  pullPolicy: "Always"
+  repository: "acnpublic.azurecr.io/cilium/cilium-dev"
+  tag: "pid@sha256:cceee51a2f23581fbfc94a6a9c06c1fde2d29e2096aad458ae4df19df26613ec"
   # cilium-digest
   digest: ""
   useDigest: false
@@ -419,7 +418,7 @@ aksbyocni:
   # -- Enable AKS BYOCNI integration.
   # Note that this is incompatible with AKS clusters not created in BYOCNI mode:
   # use Azure integration (`azure.enabled`) instead.
-  enabled: false
+  enabled: true
 # @schema
 # type: [boolean, string]
 # @schema
@@ -1048,9 +1047,9 @@ gatewayAPI:
 enableXTSocketFallback: true
 encryption:
   # -- Enable transparent network encryption.
-  enabled: false
+  enabled: true
   # -- Encryption method. Can be either ipsec or wireguard.
-  type: ipsec
+  type: ztunnel
   # -- Enable encryption for pure node to node traffic.
   # This option is only effective when encryption.type is set to "wireguard".
   nodeEncryption: false
@@ -2119,7 +2118,7 @@ readinessProbe:
 # -- Configure the kube-proxy replacement in Cilium BPF datapath
 # Valid options are "true" or "false".
 # ref: https://docs.cilium.io/en/stable/network/kubernetes/kubeproxy-free/
-#kubeProxyReplacement: "false"
+# kubeProxyReplacement: "false"
 
 # -- healthz server bind address for the kube-proxy replacement.
 # To enable set the value to '0.0.0.0:10256' for all ipv4
@@ -2850,8 +2849,8 @@ operator:
     # type: [null, string]
     # @schema
     override: ~
-    repository: "quay.io/cilium/operator"
-    tag: "latest"
+    repository: "acnpublic.azurecr.io/cilium/operator"
+    tag: "pid@sha256:5960cf03abb4f77a774ea3c9982513d1e3403b55fda00f0f980fe7949f51402e"
     # operator-generic-digest
     genericDigest: ""
     # operator-azure-digest
@@ -2862,7 +2861,7 @@ operator:
     alibabacloudDigest: ""
     useDigest: false
     pullPolicy: "Always"
-    suffix: "-ci"
+    suffix: ""
   # -- Number of replicas to run for the cilium-operator deployment
   replicas: 2
   # -- The priority class to use for cilium-operator
