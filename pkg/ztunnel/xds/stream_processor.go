@@ -4,18 +4,17 @@
 package xds
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
 	v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 
-	"github.com/cilium/cilium/pkg/endpoint"
-	"github.com/cilium/cilium/pkg/endpointmanager"
+	"github.com/cilium/cilium/pkg/k8s/resource"
+	"github.com/cilium/cilium/pkg/k8s/types"
+	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 )
-
-// StreamProcessor acts as a endpointmanager.Subscriber
-var _ endpointmanager.Subscriber = (*StreamProcessor)(nil)
 
 type StreamProcessorParams struct {
 	// The backing gRPC bidi stream initiated by zTunnel
@@ -25,9 +24,9 @@ type StreamProcessorParams struct {
 	StreamRecv chan *v3.DeltaDiscoveryRequest
 	// Channel where the StreamProcessor listens for Endpoint event.
 	// this is fed by subscribing to EndpointManager.
-	EndpointEventRecv chan *EndpointEvent
-	EndpointManager   endpointmanager.EndpointManager
-	Log               *slog.Logger
+	EndpointEventRecv         chan *EndpointEvent
+	K8sCiliumEndpointsWatcher *watchers.K8sCiliumEndpointsWatcher
+	Log                       *slog.Logger
 }
 
 // StreamProcessor implements the logic for handling xDS streams to zTunnel.
@@ -35,24 +34,72 @@ type StreamProcessorParams struct {
 // promote decoupling and the handling multiple streams without a shared set of
 // channels being required on the Server object.
 type StreamProcessor struct {
-	stream          v3.AggregatedDiscoveryService_DeltaAggregatedResourcesServer
-	streamRecv      chan *v3.DeltaDiscoveryRequest
-	endpointRecv    chan *EndpointEvent
-	endpointManager endpointmanager.EndpointManager
-	expectedNonce   map[string]struct{}
-	log             *slog.Logger
+	stream                    v3.AggregatedDiscoveryService_DeltaAggregatedResourcesServer
+	streamRecv                chan *v3.DeltaDiscoveryRequest
+	endpointRecv              chan *EndpointEvent
+	K8sCiliumEndpointsWatcher *watchers.K8sCiliumEndpointsWatcher
+	expectedNonce             map[string]struct{}
+	log                       *slog.Logger
+	endpointSubscriber        EndpointEventSource
+}
+
+// Interface for mocking subscription to Endpoint events.
+type EndpointEventSource interface {
+	// Subscribe to Endpoint events.
+	SubscribeToEndpointEvents()
+	ListAllEndpoints() ([]*types.CiliumEndpoint, error)
 }
 
 func NewStreamProcessor(params *StreamProcessorParams) *StreamProcessor {
 	sp := &StreamProcessor{
-		stream:          params.Stream,
-		streamRecv:      params.StreamRecv,
-		endpointRecv:    params.EndpointEventRecv,
-		endpointManager: params.EndpointManager,
-		log:             params.Log,
-		expectedNonce:   make(map[string]struct{}),
+		stream:                    params.Stream,
+		streamRecv:                params.StreamRecv,
+		endpointRecv:              params.EndpointEventRecv,
+		K8sCiliumEndpointsWatcher: params.K8sCiliumEndpointsWatcher,
+		log:                       params.Log,
+		expectedNonce:             make(map[string]struct{}),
 	}
+	// Set the default endpoint subscriber to self. Allows for mocking in tests.
+	sp.endpointSubscriber = sp
 	return sp
+}
+
+func (sp *StreamProcessor) SubscribeToEndpointEvents() {
+
+	// TODO(hemanthmalla): How should retries be configured here ?
+	newEvents := sp.K8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Events(context.TODO(), resource.WithErrorHandler(resource.AlwaysRetry))
+	for e := range newEvents {
+		switch e.Kind {
+		case resource.Upsert:
+			sp.endpointRecv <- &EndpointEvent{
+				Type:           CREATE,
+				CiliumEndpoint: e.Object,
+			}
+		case resource.Delete:
+			sp.endpointRecv <- &EndpointEvent{
+				Type:           REMOVED,
+				CiliumEndpoint: e.Object,
+			}
+		case resource.Sync:
+			//TODO(hemanthmalla): How should sync be handled ?
+		}
+	}
+}
+
+func (sp *StreamProcessor) ListAllEndpoints() ([]*types.CiliumEndpoint, error) {
+	if sp.K8sCiliumEndpointsWatcher == nil {
+		sp.log.Error("K8sCiliumEndpointsWatcher is not initialized ")
+		return nil, fmt.Errorf("K8sCiliumEndpointsWatcher is not initialized")
+	}
+
+	// TODO(vmalla): Handle context properly
+	cepStore, err := sp.K8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Store(context.TODO())
+	if err != nil {
+		sp.log.Debug("initialized new stream for resource")
+		return nil, fmt.Errorf("failed to get CiliumEndpoint store from K8sCiliumEndpointsWatcher: %v", err)
+	}
+	eps := cepStore.List()
+	return eps, nil
 }
 
 // handleAddressTypeURL handles a subscription for xdsTypeURLAddress type URLs.
@@ -76,7 +123,11 @@ func (sp *StreamProcessor) handleAddressTypeURL(req *v3.DeltaDiscoveryRequest) e
 	}
 
 	collection := &EndpointEventCollection{}
-	eps := sp.endpointManager.GetEndpoints()
+
+	eps, err := sp.endpointSubscriber.ListAllEndpoints()
+	if err != nil {
+		return err
+	}
 
 	// TODO: we need to filter our ztunnel instance itself.
 	collection.AppendEndpoints(CREATE, eps)
@@ -90,8 +141,7 @@ func (sp *StreamProcessor) handleAddressTypeURL(req *v3.DeltaDiscoveryRequest) e
 	// event loop.
 	sp.expectedNonce[resp.Nonce] = struct{}{}
 
-	// subscribe to endpoint manager
-	sp.endpointManager.Subscribe(sp)
+	go sp.endpointSubscriber.SubscribeToEndpointEvents()
 
 	sp.log.Debug("initialized new stream for resource", logfields.Resource, xdsTypeURLAddress)
 
@@ -215,7 +265,6 @@ func (sp *StreamProcessor) Start() {
 		select {
 		// event loop exit condition
 		case <-sp.stream.Context().Done():
-			sp.endpointManager.Unsubscribe(sp)
 			sp.log.Error("Stream context done with error", logfields.Error,
 				sp.stream.Context().Err())
 			return
@@ -232,29 +281,8 @@ func (sp *StreamProcessor) Start() {
 					logfields.Error,
 					err,
 					logfields.EndpointID,
-					epEvent.ID)
+					epEvent.UID)
 			}
 		}
-	}
-}
-
-func (sp *StreamProcessor) EndpointCreated(ep *endpoint.Endpoint) {
-	sp.endpointRecv <- &EndpointEvent{
-		Type:     CREATE,
-		Endpoint: ep,
-	}
-}
-
-func (sp *StreamProcessor) EndpointDeleted(ep *endpoint.Endpoint, conf endpoint.DeleteConfig) {
-	sp.endpointRecv <- &EndpointEvent{
-		Type:     REMOVED,
-		Endpoint: ep,
-	}
-}
-
-func (sp *StreamProcessor) EndpointRestored(ep *endpoint.Endpoint) {
-	sp.endpointRecv <- &EndpointEvent{
-		Type:     CREATE,
-		Endpoint: ep,
 	}
 }

@@ -13,7 +13,6 @@ import (
 
 	"github.com/cilium/hive/cell"
 	v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
-
 	status "google.golang.org/genproto/googleapis/rpc/status"
 
 	"github.com/cilium/cilium/api/v1/models"
@@ -25,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/hubble/testutils"
 	"github.com/cilium/cilium/pkg/identity"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	"github.com/cilium/cilium/pkg/k8s/types"
 	"github.com/cilium/cilium/pkg/option"
 
 	"github.com/stretchr/testify/require"
@@ -45,6 +45,88 @@ func (s *MockStream) Send(m *v3.DeltaDiscoveryResponse) error {
 
 func (s *MockStream) Recv() (*v3.DeltaDiscoveryRequest, error) {
 	return s._Recv()
+}
+
+type MockEndpointEventSource struct {
+	subscribeCalled bool
+}
+
+// SubscribeToEndpointEvents is a no-op for the mock since we
+// can rely on sending events to EndpointEventRecv directly in tests.
+func (m *MockEndpointEventSource) SubscribeToEndpointEvents() {
+	m.subscribeCalled = true
+}
+
+// ListAllEndpoints returns an empty list for the mock.
+func (m *MockEndpointEventSource) ListAllEndpoints() ([]*types.CiliumEndpoint, error) {
+	// Create multiple test endpoints to ensure comprehensive transformation testing
+	ceps := make([]*types.CiliumEndpoint, 0, 3)
+	expectedUIDs := []string{
+		"12345678-1234-1234-1234-123456789abc", // ep1
+		"87654321-4321-4321-4321-cba987654321", // ep2
+		"abcdef12-5678-9012-3456-789012345678", // ep3
+	}
+
+	// Endpoint 1: Full IPv4 + IPv6 endpoint with complete K8s metadata
+	ep1 := &endpoint.Endpoint{
+		ID:           1001,
+		K8sUID:       expectedUIDs[0],
+		K8sPodName:   "test-pod-1",
+		K8sNamespace: "default",
+		IPv4:         netip.MustParseAddr("10.0.1.100"),
+		IPv6:         netip.MustParseAddr("fd00::1:100"),
+	}
+	// Create and set a mock Pod for ep1
+	pod1 := &slim_corev1.Pod{
+		Spec: slim_corev1.PodSpec{
+			NodeName:           "node-1",
+			ServiceAccountName: "default-sa",
+		},
+	}
+	ep1.SetPod(pod1)
+	ceps = append(ceps, endpointToCiliumEndpoint(ep1))
+
+	// Endpoint 2: IPv4-only endpoint with different metadata
+	ep2 := &endpoint.Endpoint{
+		ID:           1002,
+		K8sUID:       expectedUIDs[1],
+		K8sPodName:   "test-pod-2",
+		K8sNamespace: "kube-system",
+		IPv4:         netip.MustParseAddr("10.0.2.200"),
+	}
+	// Create and set a mock Pod for ep2
+	pod2 := &slim_corev1.Pod{
+		Spec: slim_corev1.PodSpec{
+			NodeName:           "node-2",
+			ServiceAccountName: "kube-system-sa",
+		},
+	}
+	ep2.SetPod(pod2)
+	ceps = append(ceps, endpointToCiliumEndpoint(ep2))
+
+	// Endpoint 3: IPv6-only endpoint with different namespace
+	ep3 := &endpoint.Endpoint{
+		ID:           1003,
+		K8sUID:       expectedUIDs[2],
+		K8sPodName:   "test-pod-3",
+		K8sNamespace: "cilium-system",
+		IPv6:         netip.MustParseAddr("fd00::2:300"),
+	}
+	// Create and set a mock Pod for ep3
+	pod3 := &slim_corev1.Pod{
+		Spec: slim_corev1.PodSpec{
+			NodeName:           "node-3",
+			ServiceAccountName: "cilium-sa",
+		},
+	}
+	ep3.SetPod(pod3)
+	ceps = append(ceps, endpointToCiliumEndpoint(ep3))
+
+	return ceps, nil
+}
+
+func (m *MockEndpointEventSource) GetSubscriptionStatus() bool {
+	return m.subscribeCalled
 }
 
 // MockEndpointManager is a mock implementation of endpointmanager.EndpointManager
@@ -211,12 +293,12 @@ func TestStreamProcessorStart(t *testing.T) {
 		}
 
 		// Create mock endpoint manager
-		var unsub bool
-		mockEM := &MockEndpointManager{
-			_Unsubscribe: func(s endpointmanager.Subscriber) {
-				unsub = true
-			},
-		}
+		// var unsub bool
+		// mockEM := &MockEndpointManager{
+		// 	_Unsubscribe: func(s endpointmanager.Subscriber) {
+		// 		unsub = true
+		// 	},
+		// }
 
 		// Create channels for the stream processor
 		streamRecv := make(chan *v3.DeltaDiscoveryRequest, 1)
@@ -227,9 +309,9 @@ func TestStreamProcessorStart(t *testing.T) {
 			Stream:            mockStream,
 			StreamRecv:        streamRecv,
 			EndpointEventRecv: endpointEventRecv,
-			EndpointManager:   mockEM,
 			Log:               slog.New(slog.DiscardHandler),
 		})
+		sp.endpointSubscriber = &MockEndpointEventSource{}
 
 		timeOutCTX, cancel := context.WithTimeout(context.Background(), time.Second*2)
 		defer cancel()
@@ -246,9 +328,9 @@ func TestStreamProcessorStart(t *testing.T) {
 		select {
 		case <-done:
 			// Success - Start() returned as expected
-			if !unsub {
-				t.Fatal("Expected Unsubscribe to be called on context cancel")
-			}
+			// if !unsub {
+			// 	t.Fatal("Expected Unsubscribe to be called on context cancel")
+			// }
 		case <-timeOutCTX.Done():
 			t.Fatal("Start() did not return within timeout when context was canceled")
 		}
@@ -311,9 +393,9 @@ func TestStreamProcessorEndpointEvents(t *testing.T) {
 		createEp2.SetPod(createPod3)
 
 		// Create the three events in sequence: CREATE, REMOVE, CREATE
-		event1 := &EndpointEvent{Type: CREATE, Endpoint: createEp1}
-		event2 := &EndpointEvent{Type: REMOVED, Endpoint: removeEp}
-		event3 := &EndpointEvent{Type: CREATE, Endpoint: createEp2}
+		event1 := &EndpointEvent{Type: CREATE, CiliumEndpoint: endpointToCiliumEndpoint(createEp1)}
+		event2 := &EndpointEvent{Type: REMOVED, CiliumEndpoint: endpointToCiliumEndpoint(removeEp)}
+		event3 := &EndpointEvent{Type: CREATE, CiliumEndpoint: endpointToCiliumEndpoint(createEp2)}
 
 		// Setup mock stream to capture the response
 		var capturedResponse *v3.DeltaDiscoveryResponse
@@ -393,6 +475,7 @@ func TestStreamProcessorDeltaDiscoveryRequest(t *testing.T) {
 			},
 			log: slog.New(slog.DiscardHandler),
 		}
+		sp.endpointSubscriber = &MockEndpointEventSource{}
 
 		req := &v3.DeltaDiscoveryRequest{
 			TypeUrl:       "xdsTypeURLAddress",
@@ -441,84 +524,19 @@ func TestStreamProcessorDeltaDiscoveryRequest(t *testing.T) {
 			return nil
 		}
 
-		var sub bool
 		expectedUIDs := []string{
 			"12345678-1234-1234-1234-123456789abc", // ep1
 			"87654321-4321-4321-4321-cba987654321", // ep2
 			"abcdef12-5678-9012-3456-789012345678", // ep3
 		}
-		mockEndpointManager := &MockEndpointManager{
-			_Subscribe: func(s endpointmanager.Subscriber) {
-				sub = true
-			},
-			_GetEndpoints: func() []*endpoint.Endpoint {
-				// Create multiple test endpoints to ensure comprehensive transformation testing
-				endpoints := make([]*endpoint.Endpoint, 0, 3)
-
-				// Endpoint 1: Full IPv4 + IPv6 endpoint with complete K8s metadata
-				ep1 := &endpoint.Endpoint{
-					ID:           1001,
-					K8sUID:       expectedUIDs[0],
-					K8sPodName:   "test-pod-1",
-					K8sNamespace: "default",
-					IPv4:         netip.MustParseAddr("10.0.1.100"),
-					IPv6:         netip.MustParseAddr("fd00::1:100"),
-				}
-				// Create and set a mock Pod for ep1
-				pod1 := &slim_corev1.Pod{
-					Spec: slim_corev1.PodSpec{
-						NodeName:           "node-1",
-						ServiceAccountName: "default-sa",
-					},
-				}
-				ep1.SetPod(pod1)
-				endpoints = append(endpoints, ep1)
-
-				// Endpoint 2: IPv4-only endpoint with different metadata
-				ep2 := &endpoint.Endpoint{
-					ID:           1002,
-					K8sUID:       expectedUIDs[1],
-					K8sPodName:   "test-pod-2",
-					K8sNamespace: "kube-system",
-					IPv4:         netip.MustParseAddr("10.0.2.200"),
-				}
-				// Create and set a mock Pod for ep2
-				pod2 := &slim_corev1.Pod{
-					Spec: slim_corev1.PodSpec{
-						NodeName:           "node-2",
-						ServiceAccountName: "kube-system-sa",
-					},
-				}
-				ep2.SetPod(pod2)
-				endpoints = append(endpoints, ep2)
-
-				// Endpoint 3: IPv6-only endpoint with different namespace
-				ep3 := &endpoint.Endpoint{
-					ID:           1003,
-					K8sUID:       expectedUIDs[2],
-					K8sPodName:   "test-pod-3",
-					K8sNamespace: "cilium-system",
-					IPv6:         netip.MustParseAddr("fd00::2:300"),
-				}
-				// Create and set a mock Pod for ep3
-				pod3 := &slim_corev1.Pod{
-					Spec: slim_corev1.PodSpec{
-						NodeName:           "node-3",
-						ServiceAccountName: "cilium-sa",
-					},
-				}
-				ep3.SetPod(pod3)
-				endpoints = append(endpoints, ep3)
-
-				return endpoints
-			},
-		}
 
 		sp := StreamProcessor{
-			stream:          mockStream,
-			endpointManager: mockEndpointManager,
-			expectedNonce:   make(map[string]struct{}),
-			log:             slog.New(slog.DiscardHandler),
+			stream:        mockStream,
+			expectedNonce: make(map[string]struct{}),
+			log:           slog.New(slog.DiscardHandler),
+		}
+		sp.endpointSubscriber = &MockEndpointEventSource{
+			subscribeCalled: false,
 		}
 
 		req := &v3.DeltaDiscoveryRequest{
@@ -553,8 +571,11 @@ func TestStreamProcessorDeltaDiscoveryRequest(t *testing.T) {
 		}
 		require.ElementsMatch(t, expectedUIDs, actualUIDs, "All expected endpoint UIDs should be present in response")
 
+		s := sp.endpointSubscriber.(*MockEndpointEventSource)
 		// Validate subscription occurred
-		require.True(t, sub, "EndpointManager.Subscribe should have been called")
+		// TODO(hemanthmalla): Replace sleep with proper sync mechanism
+		time.Sleep(100 * time.Millisecond) // allow some time for subscription to be processed
+		require.True(t, s.GetSubscriptionStatus(), "EndpointManager.Subscribe should have been called")
 
 	})
 }
