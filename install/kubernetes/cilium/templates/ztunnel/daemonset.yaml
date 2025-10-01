@@ -1,3 +1,4 @@
+{{- if and .Values.encryption.enabled (eq .Values.encryption.type "ztunnel") }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -23,14 +24,18 @@ spec:
         - proxy
         - ztunnel
         env:
+        - name: USE_SPIRE
+          value: "true"
+        - name: SPIRE_ADMIN_ENDPOINT_SOCKET
+          value: "unix:///run/spire/sockets/admin.sock"
         - name: XDS_ADDRESS
           value: "https://localhost:15012"
         - name: XDS_ROOT_CA
           value: "/etc/ztunnel/bootstrap-root.crt"
         - name: CA_ROOT_CA
           value: "/etc/ztunnel/bootstrap-root.crt"
-        - name: CA_ADDRESS
-          value: "https://localhost:15012"
+        # - name: CA_ADDRESS
+        #   value: "https://localhost:15012"
         - name: FAKE_CA
           value: "false"
         - name: RUST_LOG
@@ -53,7 +58,7 @@ spec:
           valueFrom:
             fieldRef:
               apiVersion: v1
-              fieldPath: spec.nodeName
+              fieldPath: status.hostIP
         - name: INSTANCE_IP
           valueFrom:
             fieldRef:
@@ -66,7 +71,7 @@ spec:
               fieldPath: spec.serviceAccountName
         - name: ISTIO_META_ENABLE_HBONE
           value: "true"
-        image: docker.io/istio/ztunnel:1.27.0-distroless
+        image: acnpublic.azurecr.io/prism/ztunnel:v0.1.20
         imagePullPolicy: IfNotPresent
         name: istio-proxy
         ports:
@@ -103,12 +108,18 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
+        - name: spire-agent-socket
+          mountPath: /run/spire/sockets/admin.sock
+          readOnly: false
         - mountPath: /var/run/ztunnel
           name: ztunnel-dir
         # - mountPath: /usr/local/bin
         #   name: opt
         - mountPath: /etc/ztunnel
           name: cilium-ztunnel-secrets
+        - mountPath: /sys/fs/cgroup
+          name: cgroup
+          readOnly: true
       dnsPolicy: ClusterFirst
       nodeSelector:
         kubernetes.io/os: linux
@@ -125,6 +136,10 @@ spec:
       - effect: NoExecute
         operator: Exists
       volumes:
+      - name: spire-agent-socket
+        hostPath:
+          path: /run/spire/sockets/admin.sock
+          type: DirectoryOrCreate
       - hostPath:
           path: /var/run/cilium
           type: DirectoryOrCreate
@@ -139,8 +154,13 @@ spec:
           items:
             - key: bootstrap-root.crt
               path: bootstrap-root.crt
+      - hostPath:
+          path: /sys/fs/cgroup
+          type: Directory
+        name: cgroup
   updateStrategy:
     rollingUpdate:
       maxSurge: 1
       maxUnavailable: 0
     type: RollingUpdate
+{{- end }}

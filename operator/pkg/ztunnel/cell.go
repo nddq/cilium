@@ -4,19 +4,15 @@
 package ztunnel
 
 import (
-	"context"
 	_ "embed"
-	"fmt"
-	"log/slog"
+	"time"
 
 	"github.com/cilium/hive/cell"
+	"github.com/cilium/statedb"
+	"github.com/cilium/statedb/reconciler"
 	"github.com/spf13/pflag"
-	appsv1 "k8s.io/api/apps/v1"
-	"sigs.k8s.io/yaml"
 
-	operatorOption "github.com/cilium/cilium/operator/option"
-	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
-	"github.com/cilium/cilium/pkg/logging/logfields"
+	ztunnelReconciler "github.com/cilium/cilium/pkg/ztunnel/reconciler"
 )
 
 var DefaultConfig = Config{
@@ -38,68 +34,41 @@ var Cell = cell.Module(
 	"ZTunnel DaemonSet Controller",
 
 	cell.Config(DefaultConfig),
-	cell.Invoke(newZTunnelController),
+	cell.Provide(reconciler.NewExpVarMetrics),
+	cell.Provide(
+		ztunnelReconciler.NewEnrolledNamespacesTable,
+		NewEnrollmentReconciler,
+		NewServiceAccountTable,
+		newZtunnelSpireClient,
+	),
+	cell.Invoke(registerEnrollmentReconciler),
 )
 
-type controllerParams struct {
-	cell.In
-
-	Lifecycle      cell.Lifecycle
-	Logger         *slog.Logger
-	Clientset      k8sClient.Clientset
-	Config         Config
-	OperatorConfig *operatorOption.OperatorConfig
-}
-
-//go:embed ztunnel-daemonset.yaml
-var ztunnelDaemonSetYAML []byte
-
-// createDaemonSet parses the embedded YAML and returns a DaemonSet object
-func createDaemonSet() (*appsv1.DaemonSet, error) {
-	var daemonSet appsv1.DaemonSet
-	if err := yaml.Unmarshal(ztunnelDaemonSetYAML, &daemonSet); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal ztunnel DaemonSet YAML: %w", err)
+func registerEnrollmentReconciler(
+	cfg Config,
+	params reconciler.Params,
+	ops reconciler.Operations[*ztunnelReconciler.Namespace],
+	tbl statedb.RWTable[*ztunnelReconciler.Namespace],
+	m *reconciler.ExpVarMetrics,
+) error {
+	if !cfg.EnableZTunnel {
+		return nil
 	}
-	return &daemonSet, nil
-}
+	_, err := reconciler.Register(
+		params,
+		tbl,
+		(*ztunnelReconciler.Namespace).Clone,
+		(*ztunnelReconciler.Namespace).SetStatus,
+		(*ztunnelReconciler.Namespace).GetStatus,
+		ops,
+		nil, // no batch operations support
 
-func newZTunnelController(params controllerParams) error {
-	params.Logger.Info("Creating ZTunnel DaemonSet controller")
-
-	c := &controller{
-		client:         params.Clientset,
-		logger:         params.Logger,
-		config:         params.Config,
-		operatorConfig: params.OperatorConfig,
+		reconciler.WithMetrics(m),
+		reconciler.WithPruning(time.Minute),
+		reconciler.WithRefreshing(time.Minute, nil),
+	)
+	if err != nil {
+		return err
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	params.Lifecycle.Append(cell.Hook{
-		OnStart: func(_ cell.HookContext) error {
-			params.Logger.Info("Starting ztunnel DaemonSet controller")
-			go func() {
-				// must parse embedded yaml into a daemon set
-				ds, err := createDaemonSet()
-				if err != nil {
-					params.Logger.Error("Failed to create ztunnel DaemonSet",
-						logfields.Error, err)
-					return
-				}
-
-				if err := c.run(ctx, ds); err != nil {
-					params.Logger.Error("ZTunnel controller error",
-						logfields.Error, err)
-				}
-			}()
-			return nil
-		},
-		OnStop: func(ctx cell.HookContext) error {
-			params.Logger.Info("Stopping ztunnel DaemonSet controller")
-			cancel()
-			return nil
-		},
-	})
-
 	return nil
 }

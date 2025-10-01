@@ -83,6 +83,7 @@ func (sp *StreamProcessor) SubscribeToEndpointEvents() {
 		case resource.Sync:
 			//TODO(hemanthmalla): How should sync be handled ?
 		}
+		e.Done(nil)
 	}
 }
 

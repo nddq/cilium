@@ -47,7 +47,7 @@ var Cell = cell.Module(
 	"spire-client",
 	"Spire Server API Client",
 	cell.Config(defaultMutualAuthConfig),
-	cell.Config(defaultClientConfig),
+	cell.Config(DefaultClientConfig),
 	cell.Provide(NewClient),
 )
 
@@ -55,7 +55,7 @@ var FakeCellClient = cell.Module(
 	"fake-spire-client",
 	"Fake Spire Server API Client",
 	cell.Config(defaultMutualAuthConfig),
-	cell.Config(defaultClientConfig),
+	cell.Config(DefaultClientConfig),
 	cell.Provide(NewFakeClient),
 )
 
@@ -83,7 +83,7 @@ type ClientConfig struct {
 	SpiffeTrustDomain            string        `mapstructure:"mesh-auth-spiffe-trust-domain"`
 }
 
-var defaultClientConfig = ClientConfig{
+var DefaultClientConfig = ClientConfig{
 	SpireAgentSocketPath:         "/run/spire/sockets/agent/agent.sock",
 	SpireServerAddress:           "spire-server.spire.svc:8081",
 	SpireServerConnectionTimeout: 10 * time.Second,
@@ -123,20 +123,7 @@ type Client struct {
 // NewClient creates a new SPIRE client.
 // If the mutual authentication is not enabled, it returns a noop client.
 func NewClient(params params, lc cell.Lifecycle, authCfg MutualAuthConfig, cfg ClientConfig, log *slog.Logger) identity.Provider {
-	if !authCfg.Enabled {
-		return &noopClient{}
-	}
-	client := &Client{
-		k8sClient: params.K8sClient,
-		cfg:       cfg,
-		log:       log.With(logfields.LogSubsys, "spire-client"),
-	}
-
-	lc.Append(cell.Hook{
-		OnStart: client.onStart,
-		OnStop:  func(_ cell.HookContext) error { return nil },
-	})
-	return client
+	return &noopClient{}
 }
 
 func (c *Client) onStart(ctx cell.HookContext) error {

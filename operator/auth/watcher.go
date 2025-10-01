@@ -42,26 +42,7 @@ type IdentityWatcher struct {
 }
 
 func registerIdentityWatcher(p params) {
-	if !p.Cfg.Enabled {
-		return
-	}
-	iw := &IdentityWatcher{
-		logger:         p.Logger,
-		identityClient: p.IdentityClient,
-		identity:       p.Identity,
-		wg:             workerpool.New(1),
-		cfg:            p.Cfg,
-	}
-	p.Lifecycle.Append(cell.Hook{
-		OnStart: func(ctx cell.HookContext) error {
-			return iw.wg.Submit("identity-watcher", func(ctx context.Context) error {
-				return iw.run(ctx)
-			})
-		},
-		OnStop: func(_ cell.HookContext) error {
-			return iw.wg.Close()
-		},
-	})
+	return
 }
 
 func (iw *IdentityWatcher) run(ctx context.Context) error {
