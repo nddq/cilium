@@ -139,7 +139,7 @@ spec:
       - name: spire-agent-socket
         hostPath:
           path: /run/spire/sockets/admin.sock
-          type: DirectoryOrCreate
+          type: Socket
       - hostPath:
           path: /var/run/cilium
           type: DirectoryOrCreate
