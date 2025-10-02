@@ -35,7 +35,7 @@ spec:
         - name: XDS_ROOT_CA
           value: "/etc/ztunnel/bootstrap-root.crt"
         - name: CA_ROOT_CA
-          value: "/etc/ztunnel/bootstrap-root.crt"
+          value: "/etc/ztunnel/ca-root.crt"
         # - name: CA_ADDRESS
         #   value: "https://localhost:15012"
         - name: FAKE_CA
