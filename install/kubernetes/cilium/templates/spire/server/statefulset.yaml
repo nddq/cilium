@@ -82,6 +82,9 @@ spec:
         - name: grpc
           containerPort: 8081
         volumeMounts:
+        - name: cilium-ztunnel-secrets
+          mountPath: /run/spire/bootstrap
+          readOnly: true
         - name: spire-config
           mountPath: /run/spire/config
           readOnly: true
@@ -135,6 +138,9 @@ spec:
         hostPath:
           path: /run/spire/data
           type: DirectoryOrCreate
+      - name: cilium-ztunnel-secrets
+        secret:
+          secretName: cilium-ztunnel-secrets
   {{- if .Values.authentication.mutual.spire.install.server.dataStorage.enabled }}
   volumeClaimTemplates:
   - metadata:

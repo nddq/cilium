@@ -33,9 +33,9 @@ spec:
         - name: XDS_ADDRESS
           value: "https://localhost:15012"
         - name: XDS_ROOT_CA
-          value: "/etc/ztunnel/spire/bundle.crt"
+          value: "/etc/ztunnel/bootstrap-root.crt"
         - name: CA_ROOT_CA
-          value: "/etc/ztunnel/spire/bundle.crt"
+          value: "/etc/ztunnel/bootstrap-root.crt"
         # - name: CA_ADDRESS
         #   value: "https://localhost:15012"
         - name: FAKE_CA
@@ -122,9 +122,6 @@ spec:
         - mountPath: /sys/fs/cgroup
           name: cgroup
           readOnly: true
-        - name: spire-bundle
-          mountPath: /etc/ztunnel/spire
-          readOnly: true
       dnsPolicy: ClusterFirst
       nodeSelector:
         kubernetes.io/os: linux
@@ -145,12 +142,6 @@ spec:
         hostPath:
           path: /run/spire/sockets/admin.sock
           type: Socket
-      - name: spire-bundle
-        configMap:
-          name: spire-bundle
-          items:
-            - key: bundle.crt
-              path: bundle.crt
       - hostPath:
           path: /var/run/cilium
           type: DirectoryOrCreate

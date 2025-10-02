@@ -73,6 +73,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
           volumeMounts:
+            - name: cilium-ztunnel-secrets
+              mountPath: /run/spire/bootstrap
+              readOnly: true
             - name: spire-config
               mountPath: /run/spire/config
               readOnly: true
@@ -121,6 +124,9 @@ spec:
         - key:  {{ .Values.agentNotReadyTaintKey | default "node.cilium.io/agent-not-ready" }}
           effect: NoSchedule
       volumes:
+        - name: cilium-ztunnel-secrets
+          secret:
+            secretName: cilium-ztunnel-secrets
         - name: spire-config
           configMap:
             name: spire-agent
