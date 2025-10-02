@@ -17,7 +17,7 @@ data:
   agent.conf: |
     agent {
       data_dir = "/run/spire"
-      log_level = "ERROR"
+      log_level = "DEBUG"
       server_address = "spire-server"
       server_port = "8081"
       socket_path = {{ .Values.authentication.mutual.spire.agentSocketPath | quote }}

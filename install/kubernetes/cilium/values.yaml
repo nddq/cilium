@@ -3941,9 +3941,9 @@ authentication:
         # This will only take effect only if authentication.mutual.spire.enabled is true
         enabled: true
         # -- SPIRE namespace to install into
-        namespace: cilium-spire
+        namespace: kube-system
         # -- SPIRE namespace already exists. Set to true if Helm should not create, manage, and import the SPIRE namespace.
-        existingNamespace: false
+        existingNamespace: true
         # -- init container image of SPIRE agent and server
         initImage:
           # @schema

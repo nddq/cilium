@@ -25,7 +25,7 @@ import (
 
 const (
 	notFoundError   = "NotFound"
-	defaultParentID = "/cilium-operator"
+	defaultParentID = "/ztunnel"
 )
 
 type SpireClient struct {

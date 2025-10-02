@@ -30,7 +30,7 @@ data:
       }
 
       admin_ids = [
-        "spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/cilium-operator",
+        "spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/ztunnel",
       ]
     }
 
