@@ -141,6 +141,11 @@ spec:
       - name: cilium-ztunnel-secrets
         secret:
           secretName: cilium-ztunnel-secrets
+          items:
+            - key: ca-root.crt
+              path: ca-root.crt
+            - key: ca-private.key
+              path: ca-private.key
   {{- if .Values.authentication.mutual.spire.install.server.dataStorage.enabled }}
   volumeClaimTemplates:
   - metadata:

@@ -35,7 +35,7 @@ spec:
         - name: XDS_ROOT_CA
           value: "/etc/ztunnel/bootstrap-root.crt"
         - name: CA_ROOT_CA
-          value: "/etc/ztunnel/ca-root.crt"
+          value: "/run/spire/bundle/bundle.crt"
         # - name: CA_ADDRESS
         #   value: "https://localhost:15012"
         - name: FAKE_CA
@@ -110,6 +110,8 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
         volumeMounts:
+        - name: spire-bundle
+          mountPath: /run/spire/bundle
         - name: spire-agent-socket
           mountPath: /run/spire/sockets/admin.sock
           readOnly: false
@@ -156,10 +158,18 @@ spec:
           items:
             - key: bootstrap-root.crt
               path: bootstrap-root.crt
+            - key: ca-root.crt
+              path: ca-root.crt
       - hostPath:
           path: /sys/fs/cgroup
           type: Directory
         name: cgroup
+      - name: spire-bundle
+        configMap:
+          name: spire-bundle
+          items:
+            - key: bundle.crt
+              path: bundle.crt
   updateStrategy:
     rollingUpdate:
       maxSurge: 1

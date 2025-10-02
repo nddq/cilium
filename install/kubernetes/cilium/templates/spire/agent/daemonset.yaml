@@ -127,6 +127,9 @@ spec:
         - name: cilium-ztunnel-secrets
           secret:
             secretName: cilium-ztunnel-secrets
+            items:
+              - key: ca-root.crt
+                path: ca-root.crt
         - name: spire-config
           configMap:
             name: spire-agent

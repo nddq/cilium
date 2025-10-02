@@ -59,15 +59,7 @@ data:
           keys_path = "/run/spire/data/keys.json"
         }
       }
-
-      UpstreamAuthority "disk" {
-        plugin_data {
-          cert_file_path = "/run/spire/bootstrap/ca-root.crt"
-          key_file_path  = "/run/spire/bootstrap/ca-private.key"
-          bundle_file_path = "/run/spire/bootstrap/ca-root.crt"
-        }
-      }
-
+      
       Notifier "k8sbundle" {
         plugin_data {
           namespace = {{ .Values.authentication.mutual.spire.install.namespace | quote }}
