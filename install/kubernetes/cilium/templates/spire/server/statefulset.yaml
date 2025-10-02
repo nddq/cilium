@@ -131,6 +131,10 @@ spec:
         hostPath:
           path: /var/run/spire-server/sockets
           type: DirectoryOrCreate
+      - name: spire-data
+        hostPath:
+          path: /run/spire/data
+          type: DirectoryOrCreate
   {{- if .Values.authentication.mutual.spire.install.server.dataStorage.enabled }}
   volumeClaimTemplates:
   - metadata:

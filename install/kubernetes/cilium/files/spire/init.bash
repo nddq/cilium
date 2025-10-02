@@ -25,6 +25,8 @@ CILIUM_AGENT_SPIFFE_ID="spiffe://{{ .Values.authentication.mutual.spire.trustDom
 CILIUM_AGENT_SELECTORS="-selector k8s:ns:{{ include "cilium.namespace" . }} -selector k8s:sa:{{ .Values.serviceAccounts.cilium.name }}"
 CILIUM_OPERATOR_SPIFFE_ID="spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/cilium-operator"
 CILIUM_OPERATOR_SELECTORS="-selector k8s:ns:{{ include "cilium.namespace" . }} -selector k8s:sa:{{ .Values.serviceAccounts.operator.name }}"
+ZTUNNEL_SPIFFE_ID="spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/ztunnel"
+ZTUNNEL_SELECTORS="-selector k8s:ns:{{ include "cilium.namespace" . }} -selector k8s:sa:ztunnel"
 
 while pgrep spire-server > /dev/null;
 do
@@ -41,6 +43,11 @@ do
   echo "Ensuring cilium-operator entry (required for creating SPIFFE identities)"
   if spire_server entry show ${SOCKET_FLAG} -spiffeID $CILIUM_OPERATOR_SPIFFE_ID $CILIUM_OPERATOR_SELECTORS | grep -q "Found 0 entries" &> /dev/null; then
     spire_server entry create ${SOCKET_FLAG} -spiffeID $CILIUM_OPERATOR_SPIFFE_ID -parentID $AGENT_SPIFFE_ID $CILIUM_OPERATOR_SELECTORS
+  fi
+
+  echo "Ensuring ztunnel entry (required for ztunnel to get its identity)"
+  if spire_server entry show ${SOCKET_FLAG} -spiffeID $ZTUNNEL_SPIFFE_ID $ZTUNNEL_SELECTORS | grep -q "Found 0 entries" &> /dev/null; then
+    spire_server entry create ${SOCKET_FLAG} -spiffeID $ZTUNNEL_SPIFFE_ID -parentID $AGENT_SPIFFE_ID $ZTUNNEL_SELECTORS
   fi
 
   echo "Cilium Spire entries are initialized successfully or already in-sync"

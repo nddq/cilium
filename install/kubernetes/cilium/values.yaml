@@ -3966,8 +3966,8 @@ authentication:
             # @schema
             override: ~
             repository: "ghcr.io/spiffe/spire-agent"
-            tag: "1.9.6"
-            digest: "sha256:5106ac601272a88684db14daf7f54b9a45f31f77bb16a906bd5e87756ee7b97c"
+            tag: "1.11.0"
+            digest: "sha256:61d83d366491fbee99da35573a3245b94d6e364d80f0b903304fa3b70997845f"
             useDigest: true
             pullPolicy: "Always"
           # -- SPIRE agent service account
@@ -4021,8 +4021,8 @@ authentication:
             # @schema
             override: ~
             repository: "ghcr.io/spiffe/spire-server"
-            tag: "1.9.6"
-            digest: "sha256:59a0b92b39773515e25e68a46c40d3b931b9c1860bc445a79ceb45a805cab8b4"
+            tag: "1.11.0"
+            digest: "sha256:0d50f1cedbff9209257c62d0f1b06f265da3b455ce4182dc3cfb5c5635dae48a"
             useDigest: true
             pullPolicy: "Always"
           # -- SPIRE server service account
@@ -4069,7 +4069,9 @@ authentication:
           # -- Security context to be added to spire server pods.
           # SecurityContext holds pod-level security attributes and common container settings.
           # ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod
-          podSecurityContext: {}
+          podSecurityContext:
+            fsGroup: 1000
+            runAsUser: 0
           # -- Security context to be added to spire server containers.
           # SecurityContext holds pod-level security attributes and common container settings.
           # ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-container
@@ -4095,7 +4097,7 @@ authentication:
       # Example values: 10.0.0.1:8081, spire-server.cilium-spire.svc:8081
       serverAddress: ~
       # -- SPIFFE trust domain to use for fetching certificates
-      trustDomain: spiffe.cilium
+      trustDomain: cluster.local
       # -- SPIRE socket path where the SPIRE delegated api agent is listening
       adminSocketPath: /run/spire/sockets/admin.sock
       # -- SPIRE socket path where the SPIRE workload agent is listening.
