@@ -267,7 +267,7 @@ func (k *K8sWatcher) enableK8sWatchers(ctx context.Context, resourceNames []stri
 		case resources.K8sAPIGroupPodV1Core:
 			k.k8sPodWatcher.podsInit(ctx)
 		case k8sAPIGroupCiliumNodeV2:
-			if !k.kcfg.IsEnabled() {
+			if !k.kcfg.IsEnabled() && !option.Config.DisableCiliumNodeCRD {
 				k.k8sCiliumNodeWatcher.ciliumNodeInit(ctx)
 			}
 		case resources.K8sAPIGroupEndpointSliceOrEndpoint:

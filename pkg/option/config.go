@@ -1060,6 +1060,9 @@ const (
 
 	// ConnectivityProbeFrequencyRatio is the name of the option to specify the connectivity probe frequency
 	ConnectivityProbeFrequencyRatio = "connectivity-probe-frequency-ratio"
+
+	// DisableCiliumNodeCRD is the name of the option to disable use of the CiliumNode CRD
+	DisableCiliumNodeCRDName = "disable-ciliumnode-crd"
 )
 
 // Default string arguments
@@ -2020,6 +2023,9 @@ type DaemonConfig struct {
 
 	// ConnectivityProbeFrequencyRatio is the ratio of the connectivity probe frequency vs resource consumption
 	ConnectivityProbeFrequencyRatio float64
+
+	// DisableCiliumNodeCRD disables the use of CiliumNode CRD
+	DisableCiliumNodeCRD bool
 }
 
 var (
@@ -3075,6 +3081,8 @@ func (c *DaemonConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 		)
 		c.ConnectivityProbeFrequencyRatio = defaults.ConnectivityProbeFrequencyRatio
 	}
+
+	c.DisableCiliumNodeCRD = vp.GetBool(DisableCiliumNodeCRDName)
 }
 
 func (c *DaemonConfig) populateLoadBalancerSettings(logger *slog.Logger, vp *viper.Viper) {
