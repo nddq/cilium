@@ -1,12 +1,7 @@
 name: Cyclonus Network Policy Test
 
 on:
-  push:
-    branches:
-      - v1.18
-      - ft/v1.18/**
-    paths-ignore:
-      - 'Documentation/**'
+  pull_request: {}
 
 permissions: read-all
 
@@ -15,6 +10,19 @@ env:
   CONFORMANCE_TEMPLATE: examples/kubernetes/connectivity-check/connectivity-check.yaml
   TIMEOUT: 2m
   LOG_TIME: 30m
+
+concurrency:
+  # Structure:
+  # - Workflow name
+  # - Event type
+  # - A unique identifier depending on event type:
+  #   - schedule: SHA
+  #   - workflow_dispatch: PR number
+  #
+  # This structure ensures a unique concurrency group name is generated for each
+  # type of testing, such that re-runs will cancel the previous run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.ref }}
+  cancel-in-progress: true
 
 jobs:
   preflight-clusterrole:
@@ -40,9 +48,7 @@ jobs:
 
   cyclonus-test:
     name: Cyclonus Test
-    env:
-      job_name: "Cyclonus Test"
-    runs-on: ubuntu-24.04
+    runs-on: [self-hosted, 1ES.Pool=acn-githubemu2-mariner2-amd64-pool]
     steps:
       - name: Collect Workflow Telemetry
         uses: catchpoint/workflow-telemetry-action@94c3c3d9567a0205de6da68a76c428ce4e769af1 # v2.0.0
@@ -52,11 +58,13 @@ jobs:
       - name: Checkout target branch to access local actions
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
-          ref: ${{ github.base_ref || github.ref }}
+          ### ACN CHANGE ###
+          # We want to always pull from the branch that queued this workflow when setting variables
+          ref: ${{ inputs.context-ref || github.sha }}
           persist-credentials: false
 
       - name: Set Environment Variables
-        uses: ./.github/actions/set-env-variables
+        uses: ./.github/actions/set-env-variables-acn
 
       - name: Checkout
         uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -78,12 +86,24 @@ jobs:
             echo tag=${{ github.sha }} >> $GITHUB_OUTPUT
           fi
 
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          auth-type: IDENTITY
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: acr login
+        run: |
+          az acr login -n acnpublic.azurecr.io
+
       - name: Wait for images to be available
-        timeout-minutes: 30
+        timeout-minutes: 45
         shell: bash
         run: |
-          until docker manifest inspect quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci:${{ steps.vars.outputs.tag }} &> /dev/null; do sleep 45s; done
-          until docker manifest inspect quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/operator-generic-ci:${{ steps.vars.outputs.tag }} &> /dev/null; do sleep 45s; done
+          until docker manifest inspect acnpublic.azurecr.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci:${{ steps.vars.outputs.tag }} &> /dev/null; do sleep 45s; done
+          until docker manifest inspect acnpublic.azurecr.io/${{ env.QUAY_ORGANIZATION_DEV }}/operator-generic-ci:${{ steps.vars.outputs.tag }} &> /dev/null; do sleep 45s; done
 
       - name: Create kind cluster
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
@@ -126,11 +146,11 @@ jobs:
             --set hostPort.enabled=true \
             --set bpf.masquerade=false \
             --set ipam.mode=kubernetes \
-            --set image.repository=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci \
+            --set image.repository=acnpublic.azurecr.io/${{ env.QUAY_ORGANIZATION_DEV }}/cilium-ci \
             --set image.tag=${{ steps.vars.outputs.tag }} \
             --set image.pullPolicy=IfNotPresent \
             --set image.useDigest=false \
-            --set operator.image.repository=quay.io/${{ env.QUAY_ORGANIZATION_DEV }}/operator \
+            --set operator.image.repository=acnpublic.azurecr.io/${{ env.QUAY_ORGANIZATION_DEV }}/operator \
             --set operator.image.suffix=-ci \
             --set operator.image.tag=${{ steps.vars.outputs.tag }} \
             --set operator.image.pullPolicy=IfNotPresent \
