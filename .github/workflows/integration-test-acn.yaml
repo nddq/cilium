@@ -60,7 +60,8 @@ concurrency:
     ${{ github.event_name }}
     ${{
       (github.event_name == 'push' && github.sha) ||
-      (github.event_name == 'workflow_dispatch' && github.event.inputs.PR-number)
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.PR-number) ||
+      (github.event_name == 'pull_request' && github.event.number)
     }}
   cancel-in-progress: true
 
