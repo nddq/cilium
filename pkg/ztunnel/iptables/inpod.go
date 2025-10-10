@@ -12,6 +12,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/cilium/cilium/pkg/command/exec"
+	"github.com/cilium/cilium/pkg/datapath/linux/route"
 	"github.com/cilium/cilium/pkg/datapath/linux/safenetlink"
 	"github.com/cilium/cilium/pkg/defaults"
 )
@@ -41,7 +42,7 @@ const (
 // Note that this function is supposed to be called from within the pods
 // network namespace.
 func CreateInPodRules(logger *slog.Logger, ipv4Enabled, ipv6Enabled bool) error {
-	if err := addLoopbackRoute(ipv6Enabled); err != nil {
+	if err := addLoopbackRoute(logger, ipv6Enabled); err != nil {
 		return err
 	}
 
@@ -56,12 +57,7 @@ func CreateInPodRules(logger *slog.Logger, ipv4Enabled, ipv6Enabled bool) error 
 	return nil
 }
 
-func addLoopbackRoute(ipv6Enabled bool) error {
-	loopbackLink, err := safenetlink.LinkByName("lo")
-	if err != nil {
-		return fmt.Errorf("failed to find 'lo' link: %w", err)
-	}
-
+func addLoopbackRoute(logger *slog.Logger, ipv6Enabled bool) error {
 	// Set up netlink routes for localhost
 	cidrs := []string{"0.0.0.0/0"}
 	if ipv6Enabled {
@@ -74,55 +70,47 @@ func addLoopbackRoute(ipv6Enabled bool) error {
 		}
 
 		// Equiv: "ip route add local 0.0.0.0/0 dev lo table 100"
-		netlinkRoute := &netlink.Route{
-			Dst:       localhostDst,
-			Scope:     netlink.SCOPE_HOST,
-			Type:      unix.RTN_LOCAL,
-			Table:     RouteTableInbound,
-			LinkIndex: loopbackLink.Attrs().Index,
+		ciliumRoute := route.Route{
+			Device: "lo",
+			Prefix: *localhostDst,
+			Scope:  netlink.SCOPE_HOST,
+			Type:   unix.RTN_LOCAL,
+			Table:  RouteTableInbound,
 		}
 
-		// Use RouteReplace instead of RouteAdd to handle existing routes
-		if err := netlink.RouteReplace(netlinkRoute); err != nil {
-			return fmt.Errorf("failed to add route (%+v): %w", netlinkRoute, err)
+		if err := route.Upsert(logger, ciliumRoute); err != nil {
+			return fmt.Errorf("failed to add route (%+v): %w", ciliumRoute, err)
 		}
 	}
 	return nil
 }
 
 func addInPodMarkRule(ipv6Enabled bool) error {
-	var rules []*netlink.Rule
 	mask := uint32(InpodMask)
 
-	inpodMarkRule := netlink.NewRule()
-	inpodMarkRule.Family = unix.AF_INET
-	inpodMarkRule.Table = RouteTableInbound
-	inpodMarkRule.Mark = InpodTProxyMark
-	inpodMarkRule.Mask = &mask
-	inpodMarkRule.Priority = InpodRulePriority
-	rules = append(rules, inpodMarkRule)
-
-	if ipv6Enabled {
-		inpodMarkRule6 := netlink.NewRule()
-		inpodMarkRule6.Family = unix.AF_INET6
-		inpodMarkRule6.Table = RouteTableInbound
-		inpodMarkRule6.Mark = InpodTProxyMark
-		inpodMarkRule6.Mask = &mask
-		inpodMarkRule6.Priority = InpodRulePriority
-		rules = append(rules, inpodMarkRule6)
+	// IPv4 rule
+	ipv4Rule := route.Rule{
+		Priority: InpodRulePriority,
+		Mark:     InpodTProxyMark,
+		Mask:     mask,
+		Table:    RouteTableInbound,
 	}
 
-	for _, rule := range rules {
-		// Check if rule already exists
-		exists, err := lookupInpodRule(rule)
-		if err != nil {
-			return fmt.Errorf("failed to lookup netlink rule: %w", err)
+	if err := route.ReplaceRule(ipv4Rule); err != nil {
+		return fmt.Errorf("failed to configure IPv4 netlink rule: %w", err)
+	}
+
+	if ipv6Enabled {
+		// IPv6 rule
+		ipv6Rule := route.Rule{
+			Priority: InpodRulePriority,
+			Mark:     InpodTProxyMark,
+			Mask:     mask,
+			Table:    RouteTableInbound,
 		}
-		if exists {
-			continue // Rule already exists, skip adding
-		}
-		if err := netlink.RuleAdd(rule); err != nil {
-			return fmt.Errorf("failed to configure netlink rule: %w", err)
+
+		if err := route.ReplaceRuleIPv6(ipv6Rule); err != nil {
+			return fmt.Errorf("failed to configure IPv6 netlink rule: %w", err)
 		}
 	}
 	return nil
@@ -432,28 +420,4 @@ func deleteInPodChains(logger *slog.Logger, ipv4Enabled, ipv6Enabled bool) error
 		}
 	}
 	return nil
-}
-
-// lookupInpodRule checks if a rule matching the spec already exists
-func lookupInpodRule(spec *netlink.Rule) (bool, error) {
-	rules, err := safenetlink.RuleList(spec.Family)
-	if err != nil {
-		return false, err
-	}
-
-	for _, r := range rules {
-		if spec.Priority != 0 && spec.Priority != r.Priority {
-			continue
-		}
-		if spec.Mark != 0 && r.Mark != spec.Mark {
-			continue
-		}
-		if spec.Mask != nil && (r.Mask == nil || *r.Mask != *spec.Mask) {
-			continue
-		}
-		if r.Table == spec.Table && r.Family == spec.Family {
-			return true, nil
-		}
-	}
-	return false, nil
 }
