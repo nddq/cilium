@@ -56,7 +56,7 @@ runs:
         # Image mirroring steps
         echo ${{ env.directory }}
         goImage=`cat ${{ env.directory }} | grep "ARG GOLANG_IMAGE" | awk '{print $2}' | { grep -v grep || true; }`
-        alpineImage=`cat ${{ env.directory }} | grep "ARG ALPINE_IMAGE" | awk '{print $2}' | { grep -v grep || true; }`
+        alpineImage=`cat ./images/cache/Dockerfile | grep "ARG ALPINE_IMAGE" | awk '{print $2}' | { grep -v grep || true; }`
 
         # Placeholder for base image and sdp image replacement
         # baseImage=`cat ${{ inputs.directory }} | grep "BASE_IMAGE" | awk '{print $2}'`

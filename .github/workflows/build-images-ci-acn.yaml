@@ -26,6 +26,10 @@ permissions:
   contents: read
   # Required to generate OIDC tokens for `sigstore/cosign-installer` authentication
   id-token: write
+  ### ACN CHANGE ###
+  # Required for gh cli to trigger other workflows
+  actions: write
+
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.event.after }}
@@ -230,6 +234,9 @@ jobs:
           push: false
           platforms: linux/amd64
           target: import-cache
+          build-args: |
+            ${{ env.ALPINE_ARGS }}
+            ${{ env.GO_ARGS }}
 
       - name: Check for disk usage
         shell: bash
@@ -417,3 +424,87 @@ jobs:
         run: |
           cd image-digest/
           find -type f | sort | xargs -d '\n' cat
+
+  ### ACN CHANGES ###
+  trigger-tests:
+    if: ${{ always() && needs.build-and-push-prs.result == 'success' }}
+    name: Trigger Test Workflows
+    runs-on: ubuntu-24.04
+    needs: [build-and-push-prs, image-digests]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          ref: ${{ inputs.context-ref || github.sha }}
+          persist-credentials: false
+
+      - name: Get SHA and PR info for triggering
+        id: trigger-info
+        run: |
+          if [ "${{ github.event.pull_request.head.sha }}" != "" ]; then
+            sha=${{ github.event.pull_request.head.sha }}
+            pr_number=${{ github.event.pull_request.number }}
+            context_ref=${{ github.head_ref }}
+          else
+            sha=${{ github.sha }}
+            pr_number=""
+            context_ref=${{ github.ref }}
+          fi
+          echo sha=${sha} >> $GITHUB_OUTPUT
+          echo pr_number=${pr_number} >> $GITHUB_OUTPUT
+          echo context_ref=${context_ref} >> $GITHUB_OUTPUT
+
+      - name: Trigger Smoke Test
+        run: |
+          gh workflow run tests-smoke.yaml \
+            --ref ${{ steps.trigger-info.outputs.context_ref }} \
+            --field SHA="${{ steps.trigger-info.outputs.sha }}" \
+            --field PR-number="${{ steps.trigger-info.outputs.pr_number }}" \
+            --field context-ref="${{ steps.trigger-info.outputs.context_ref }}" \
+            --field extra-args='{"triggered_by": "acn-image-ci-build"}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Smoke Test with IPv6
+        run: |
+          gh workflow run tests-smoke-ipv6.yaml \
+            --ref ${{ steps.trigger-info.outputs.context_ref }} \
+            --field SHA="${{ steps.trigger-info.outputs.sha }}" \
+            --field PR-number="${{ steps.trigger-info.outputs.pr_number }}" \
+            --field context-ref="${{ steps.trigger-info.outputs.context_ref }}" \
+            --field extra-args='{"triggered_by": "acn-image-ci-build"}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger Conformance K8s Network Policies
+        run: |
+          gh workflow run conformance-k8s-network-policies.yaml \
+            --ref ${{ steps.trigger-info.outputs.context_ref }} \
+            --field SHA="${{ steps.trigger-info.outputs.sha }}" \
+            --field PR-number="${{ steps.trigger-info.outputs.pr_number }}" \
+            --field context-ref="${{ steps.trigger-info.outputs.context_ref }}" \
+            --field extra-args='{"triggered_by": "acn-image-ci-build"}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger K8s Network E2E tests and kube-apiserver HA
+        run: |
+          gh workflow run k8s-kind-network-e2e.yaml \
+            --ref ${{ steps.trigger-info.outputs.context_ref }} \
+            --field SHA="${{ steps.trigger-info.outputs.sha }}" \
+            --field PR-number="${{ steps.trigger-info.outputs.pr_number }}" \
+            --field context-ref="${{ steps.trigger-info.outputs.context_ref }}" \
+            --field extra-args='{"triggered_by": "acn-image-ci-build"}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger K8s Network Policy E2E tests
+        run: |
+          gh workflow run k8s-kind-network-policies-e2e.yaml \
+            --ref ${{ steps.trigger-info.outputs.context_ref }} \
+            --field SHA="${{ steps.trigger-info.outputs.sha }}" \
+            --field PR-number="${{ steps.trigger-info.outputs.pr_number }}" \
+            --field context-ref="${{ steps.trigger-info.outputs.context_ref }}" \
+            --field extra-args='{"triggered_by": "acn-image-ci-build"}'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

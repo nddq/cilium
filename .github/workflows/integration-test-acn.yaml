@@ -74,6 +74,21 @@ jobs:
       - name: Echo Workflow Dispatch Inputs
         run: |
           echo '${{ tojson(inputs) }}'
+      - name: Echo Concurrency Group
+        run: |
+          echo "Current concurrency group:"
+          echo "${{ github.workflow }}"
+          echo "${{ github.event_name }}"
+          echo "${{
+            (github.event_name == 'push' && github.sha) ||
+            (github.event_name == 'workflow_dispatch' && github.event.inputs.PR-number) ||
+            (github.event_name == 'pull_request' && github.event.number)
+          }}"
+          echo "Full concurrency group: ${{ github.workflow }}-${{ github.event_name }}-${{
+            (github.event_name == 'push' && github.sha) ||
+            (github.event_name == 'workflow_dispatch' && github.event.inputs.PR-number) ||
+            (github.event_name == 'pull_request' && github.event.number)
+          }}"
 
   commit-status-start:
     if: ${{ github.event_name != 'push' }}
