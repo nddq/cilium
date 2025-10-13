@@ -251,3 +251,6 @@ define ASSERT_CILIUM_MODULE
 endef
 
 RENOVATE_GITHUB_COM_TOKEN ?= $(shell gh auth token)
+ifneq ($(wildcard $(dir $(lastword $(MAKEFILE_LIST)))/images/dnsproxy/Dockerfile),)
+    GO_BUILD_LDFLAGS += -extldflags "-static"
+endif

@@ -20,6 +20,7 @@ SUBDIR_CLUSTERMESH_APISERVER_CONTAINER := clustermesh-apiserver
 ifdef LIBNETWORK_PLUGIN
 SUBDIRS_CILIUM_CONTAINER += plugins/cilium-docker
 endif
+SUBDIR_DNSPROXY_CONTAINER := dnsproxy
 
 # Add the ability to override variables
 -include Makefile.override
@@ -80,6 +81,9 @@ build-container-hubble-relay:
 
 build-container-clustermesh-apiserver: ## Builds components required for the clustermesh-apiserver container.
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_CLUSTERMESH_APISERVER_CONTAINER) all
+
+build-container-dnsproxy: ## Builds components required for dnsproxy container.
+	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_DNSPROXY_CONTAINER) dnsproxy
 
 $(SUBDIRS): force ## Execute default make target(make all) for the provided subdirectory.
 	@ $(MAKE) $(SUBMAKEOPTS) -C $@ all
@@ -237,6 +241,10 @@ install-container-binary-hubble-relay:
 
 install-container-binary-clustermesh-apiserver: ## Install binaries for all components required for the clustermesh-apiserver container.
 	$(MAKE) $(SUBMAKEOPTS) -C $(SUBDIR_CLUSTERMESH_APISERVER_CONTAINER) install-binary
+
+install-container-binary-dnsproxy: ## Install binaries for all components required for dnsproxy container.
+	$(QUIET)$(INSTALL) -m 0755 -d $(DESTDIR)$(BINDIR)
+	$(MAKE) $(SUBMAKEOPTS) -C dnsproxy install
 
 # Workaround for not having git in the build environment
 # Touch the file only if needed
@@ -536,6 +544,7 @@ help: ## Display help for the Makefile, from https://www.thapaliya.com/en/writin
 	$(call print_help_line,"docker-operator-*-image","Build platform specific cilium-operator images(alibabacloud, aws, azure, generic)")
 	$(call print_help_line,"dev-docker-operator-*-image-debug","Build platform specific cilium-operator debug images(alibabacloud, aws, azure, generic)")
 	$(call print_help_line,"docker-*-image-unstripped","Build unstripped version of above docker images(cilium, hubble-relay, operator etc.)")
+	$(call print_help_line,"docker-dnsproxy-image","Build standalone DNS proxy docker image")
 
 .PHONY: help clean clean-container dev-doctor force generate-api generate-health-api generate-operator-api generate-kvstoremesh-api generate-hubble-api generate-sdp-api install licenses-all veryclean run_bpf_tests run-builder
 force :;
