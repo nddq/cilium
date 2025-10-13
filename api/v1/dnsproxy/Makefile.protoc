@@ -1,0 +1,31 @@
+# This Makefile is expected to run inside the cilium-builder image to generate
+# the proto files. Run `make proto` on ./Makefile to invoke run this inside a
+# a container.
+
+PROTOC ?= protoc
+
+DNSPROXY_PROTO_SOURCES := dnsproxy.proto
+
+DNSPROXY_GO_TARGETS := $(DNSPROXY_PROTO_SOURCES:.proto=.pb.go) $(DNSPROXY_PROTO_SOURCES:.proto=.pb.json.go)
+
+DNSPROXY_PROTO_PATH := .
+
+DNSPROXY_PROTOC_PLUGINS := --plugin=$(GOPATH)/bin/protoc-gen-doc
+DNSPROXY_PROTOC_PLUGINS += --plugin=$(GOPATH)/bin/protoc-gen-go-grpc
+DNSPROXY_PROTOC_PLUGINS += --plugin=$(GOPATH)/bin/protoc-gen-go-json
+DNSPROXY_PROTOC_PLUGINS += --plugin=$(GOPATH)/bin/protoc-gen-go
+
+.PHONY: all
+all:
+	@echo NOTE: The warning about package github.com/golang/protobuf/protoc-gen-go/generator can be ignored
+	$(QUIET)set -e; \
+	for proto in $(DNSPROXY_PROTO_SOURCES) ; do \
+		echo Generating $${proto} && \
+		$(PROTOC) $(DNSPROXY_PROTOC_PLUGINS) -I $(DNSPROXY_PROTO_PATH) \
+			--doc_out=./ \
+			--doc_opt=markdown,README.md,source_relative \
+			--go_out=paths=source_relative:. \
+			--go-grpc_out=require_unimplemented_servers=false,paths=source_relative:. \
+			--go-json_out=orig_name=true,paths=source_relative:. \
+			$${proto}; \
+	done

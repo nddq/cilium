@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package dnsproxy;
+
+option go_package = "github.com/cilium/cilium/api/v1/dnsproxy";
+
+service AzureFQDNData {
+    rpc SubscribeToDNSRules(Request) returns (stream DNSPolicyRules) {}
+    rpc UpdateMappings(stream AzureFQDNMapping) returns (Result) {}
+}
+  
+message Request {
+  string message = 1;
+}
+
+message AzureFQDNMapping {
+  string FQDN = 1;
+  repeated bytes IPS = 2;
+  uint32 TTL = 3;
+  bytes client_ip = 4;
+  uint32 response_code = 5;
+}
+
+message Result {
+  bool success = 1;
+}
+
+message FQDNSelector {
+  string match_name = 1;
+  string match_pattern = 2;
+}
+
+message DNSPolicyRule {
+  string selector_string = 1;
+  repeated FQDNSelector port_rules= 2;
+  repeated string match_labels = 3;
+  repeated uint32 selections = 4;
+}
+
+message DNSPolicyRules {
+  uint64 endpoint_id = 1;
+  uint32 port = 2;
+  repeated DNSPolicyRule rules = 3;
+}
