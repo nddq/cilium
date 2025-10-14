@@ -110,20 +110,10 @@ func (sp *StreamProcessor) ListAllEndpoints() ([]*types.CiliumEndpoint, error) {
 		sp.log.Debug("initialized new stream for resource")
 		return nil, fmt.Errorf("failed to get CiliumEndpoint store from K8sCiliumEndpointsWatcher: %v", err)
 	}
-	// Get the local node IP for filtering
-	localNodeIP := node.GetCiliumEndpointNodeIP(sp.log)
 
 	allEps := cepStore.List()
-	// Filter to only include endpoints that don't belong to this node
-	filteredEps := make([]*types.CiliumEndpoint, 0, len(allEps))
-	for _, ep := range allEps {
-		if ep.Networking != nil && ep.Networking.NodeIP == localNodeIP {
-			continue
-		}
-		filteredEps = append(filteredEps, ep)
-	}
 
-	return filteredEps, nil
+	return allEps, nil
 }
 
 // handleAddressTypeURL handles a subscription for xdsTypeURLAddress type URLs.
