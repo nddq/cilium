@@ -16,7 +16,8 @@ import (
 // dnsRedirect implements the Redirect interface for an l7 proxy
 type dnsRedirect struct {
 	Redirect
-	dnsProxy fqdnproxy.DNSProxier
+	dnsProxy            fqdnproxy.DNSProxier
+	sdpProxyRuleUpdater service.PolicyUpdater
 }
 
 func (dr *dnsRedirect) GetRedirect() *Redirect {
@@ -30,6 +31,9 @@ func (dr *dnsRedirect) setRules(newRules policy.L7DataMap) (revert.RevertFunc, e
 		logfields.NewRules, newRules,
 		logfields.EndpointID, dr.endpointID,
 	)
+	if dr.sdpProxyRuleUpdater != nil && dr.sdpProxyRuleUpdater.IsEnabled() {
+		dr.sdpProxyRuleUpdater.UpdateSDPAllowed(uint64(dr.endpointID), dr.dstPortProto, newRules)
+	}
 
 	return dr.dnsProxy.UpdateAllowed(uint64(dr.endpointID), dr.dstPortProto, newRules)
 }
@@ -55,8 +59,9 @@ type dnsProxyIntegration struct {
 // in is safe to access for reading and writing.
 func (p *dnsProxyIntegration) createRedirect(redirect Redirect) (RedirectImplementation, error) {
 	dr := &dnsRedirect{
-		Redirect: redirect,
-		dnsProxy: p.dnsProxy,
+		Redirect:            redirect,
+		dnsProxy:            p.dnsProxy,
+		sdpProxyRuleUpdater: p.sdpPolicyUpdater,
 	}
 
 	return dr, nil

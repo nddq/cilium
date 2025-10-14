@@ -388,6 +388,7 @@ cilium-agent [flags]
       --tofqdns-preallocate-identities                            Preallocate identities for ToFQDN selectors. This reduces proxied DNS response latency. Disable if you have many ToFQDN selectors. (default true)
       --tofqdns-proxy-port int                                    Global port on which the in-agent DNS proxy should listen. Default 0 is a OS-assigned port.
       --tofqdns-proxy-response-max-delay duration                 The maximum time the DNS proxy holds an allowed DNS response before sending it along. Responses are sent as soon as the datapath is updated with the new IP information. (default 100ms)
+      --tofqdns-server-port int                                   Global port on which the in-agent grpc server for fqdn should listen on.(deprecated, use standalone-dns-proxy-server-port instead) (default 40045)
       --trace-payloadlen int                                      Length of payload to capture when tracing native packets. (default 128)
       --trace-payloadlen-overlay int                              Length of payload to capture when tracing overlay packets. (default 192)
       --trace-sock                                                Enable tracing for socket-based LB (default true)

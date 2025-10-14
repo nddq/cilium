@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/cilium/cilium/pkg/fqdn/service"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -22,6 +23,7 @@ var (
 		"Standalone DNS Proxy",
 
 		cell.Provide(func() *option.DaemonConfig { return option.Config }),
+		cell.Config(service.DefaultConfig),
 		cell.Invoke(registerDNSProxyHooks),
 	)
 
@@ -66,8 +68,9 @@ func Execute(cmd *cobra.Command) {
 type standaloneDNSProxyParams struct {
 	cell.In
 
-	Logger    *slog.Logger
-	Lifecycle cell.Lifecycle
+	Logger     *slog.Logger
+	Lifecycle  cell.Lifecycle
+	FQDNConfig service.FQDNConfig
 }
 
 func registerDNSProxyHooks(params standaloneDNSProxyParams) {
@@ -84,6 +87,7 @@ func registerDNSProxyHooks(params standaloneDNSProxyParams) {
 		concurrencyLimit:       option.Config.DNSProxyConcurrencyLimit,
 		concurrencyGracePeriod: option.Config.DNSProxyConcurrencyProcessingGracePeriod,
 		logger:                 params.Logger,
+		toFqdnServerPort:       uint16(params.FQDNConfig.StandaloneDNSProxyServerPort),
 	}
 
 	// Todo: add the log with individual fields

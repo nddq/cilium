@@ -6,19 +6,25 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/netip"
 	"slices"
 
+	"github.com/cilium/dns"
 	"github.com/cilium/hive/cell"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/cilium/cilium/pkg/clustermesh/types"
+	"github.com/cilium/cilium/pkg/container/versioned"
 	"github.com/cilium/cilium/pkg/counter"
+	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
+	"github.com/cilium/cilium/pkg/fqdn/dnsproxy"
 	"github.com/cilium/cilium/pkg/fqdn/messagehandler"
+	"github.com/cilium/cilium/pkg/fqdn/restore"
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/lock"
@@ -26,6 +32,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/time"
 
+	azureDNSProxy "github.com/cilium/cilium/api/v1/dnsproxy"
 	pb "github.com/cilium/cilium/api/v1/standalone-dns-proxy"
 )
 
@@ -75,7 +82,18 @@ type FQDNDataServer struct {
 	// If ANY of these conditions is not met, enabled will be false and the standalone
 	// DNS proxy will not function. The IsEnabled() method returns this field's value.
 	enabled bool
+
+	// Azure's DNS Proxy fields
+	azureDNSProxy.UnimplementedAzureFQDNDataServer
+
+	ctx    context.Context
+	cancel context.CancelFunc
+
+	streams lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]
+
+	localRules map[uint64]map[restore.PortProto]policy.L7DataMap
 }
+type updateOnDNSMsgFunc func(responseIPs []netip.Addr, lookupTime time.Time, qname string, TTL uint32, ep *endpoint.Endpoint, stat *dnsproxy.ProxyRequestContext)
 
 var (
 	kaep = keepalive.EnforcementPolicy{
@@ -115,6 +133,11 @@ type PolicyUpdater interface {
 
 	// IsEnabled returns true if the standalone DNS proxy is enabled
 	IsEnabled() bool
+
+	// Azure's DNS Proxy methods
+	// UpdateSDPAllowed updates the rules in the SDP DNS proxy with newRules.
+	// This is called from the cilium-agent when the policy is updated.
+	UpdateSDPAllowed(endpointID uint64, destPortProto restore.PortProto, newRules policy.L7DataMap) error
 }
 
 // StreamPolicyState is a bidirectional streaming RPC to subscribe to DNS policies
@@ -134,6 +157,7 @@ func (s *FQDNDataServer) StreamPolicyState(stream pb.FQDNData_StreamPolicyStateS
 
 // NewServer creates a new FQDNDataServer which is used to handle the Standalone DNS Proxy grpc service
 func NewServer(endpointManager endpointmanager.EndpointManager, updateOnDNSMsg messagehandler.DNSMessageHandler, port int, logger *slog.Logger, listener listenConfig) *FQDNDataServer {
+	ctx, cancel := context.WithCancel(context.Background())
 	fqdnDataServer := &FQDNDataServer{
 		port:                port,
 		endpointManager:     endpointManager,
@@ -143,6 +167,12 @@ func NewServer(endpointManager endpointmanager.EndpointManager, updateOnDNSMsg m
 		prefixLengths:       counter.DefaultPrefixLengthCounter(),
 		listener:            listener,
 		enabled:             true,
+
+		// Azure's DNS Proxy fields
+		ctx:        ctx,
+		cancel:     cancel,
+		streams:    lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
+		localRules: make(map[uint64]map[restore.PortProto]policy.L7DataMap),
 	}
 
 	grpcServer := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
@@ -270,6 +300,187 @@ func (s *FQDNDataServer) Stop() {
 	if s.grpcServer == nil {
 		return
 	}
+
+	s.cleanupStreams()
 	// Stop the grpc server
 	s.grpcServer.GracefulStop()
+}
+
+/* Azure's DNS Proxy methods */
+/*
+UpdateSDPAllowed updates the rules in the SDP DNS proxy with newRules.
+This is called from the cilium-agent when the policy is updated.
+*/
+func (s *FQDNDataServer) UpdateSDPAllowed(endpointID uint64, destPortProto restore.PortProto, newRules policy.L7DataMap) error {
+	s.log.Debug("Policy updates for SDP", logfields.EndpointID, endpointID, logfields.Port, destPortProto, logfields.Rule, newRules)
+	dnsPolicyRule := make([]*azureDNSProxy.DNSPolicyRule, 0, len(newRules))
+	for selector, policy := range newRules {
+		if policy == nil || policy.DNS == nil {
+			continue
+		}
+		fqdnSelectors := make([]*azureDNSProxy.FQDNSelector, 0, len(policy.DNS))
+		for _, portRules := range policy.DNS {
+			fqdnSelectors = append(fqdnSelectors, &azureDNSProxy.FQDNSelector{
+				MatchName:    portRules.MatchName,
+				MatchPattern: portRules.MatchPattern,
+			})
+		}
+		var selections []uint32
+		for _, selc := range selector.GetSelections(versioned.Latest()) {
+			selections = append(selections, uint32(selc))
+		}
+
+		dnsPolicyRule = append(dnsPolicyRule, &azureDNSProxy.DNSPolicyRule{
+			SelectorString: selector.String(),
+			PortRules:      fqdnSelectors,
+			Selections:     selections,
+		})
+	}
+	dnsPolicyRules := &azureDNSProxy.DNSPolicyRules{
+		EndpointId: endpointID,
+		Port:       uint32(destPortProto.Port()),
+		Rules:      dnsPolicyRule,
+	}
+
+	// Storing the rules for the endpoint
+	// This is avoid the race between CA and SDP during new policy updates from CA along with SDP restart:
+	// - CA is updating the DNS rules, alongside SDP is also coming up.
+	// - Before cilium updates the dns rules in filesystem, SDP reads the (n-1)th updated rules.
+	// - Cilium agent tries to send the nth rules ro SDP, but SDP has not yet created the connection with CA.
+	// - Hence, the new rules are not updated in SDP. Now CA is aware of new rules and but not sdp.
+	// - We send the latest rules to SDP on connection establishment. Making cilium agent as the source truth.
+	if _, ok := s.localRules[endpointID]; !ok {
+		s.localRules[endpointID] = make(map[restore.PortProto]policy.L7DataMap)
+	}
+	s.localRules[endpointID][destPortProto] = newRules
+
+	s.log.Info("Sending Policy updates to sdp", logfields.Rules, dnsPolicyRules)
+	s.streams.Range(func(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, cancel context.CancelFunc) bool {
+		s.log.Info("Sending update to stream", logfields.Key, stream)
+		if err := stream.Send(dnsPolicyRules); err != nil {
+			s.log.Error("Failed to send update", logfields.Error, err)
+			// Cancel the goroutine and remove the stream from the map
+			cancel()
+		}
+		return true
+	})
+	return nil
+}
+
+func (s *FQDNDataServer) DeleteStream(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer) {
+	_, ok := s.streams.Load(stream)
+	if ok {
+		s.log.Info("Deleting stream", logfields.Key, stream)
+		s.streams.Delete(stream)
+	} else {
+		s.log.Warn("Stream not found", logfields.Key, stream)
+	}
+}
+
+// SubscribeToDNSRules is the gRPC handler for the SubscribeToDNSRules RPC.
+// SDP will call this method to subscribe to DNS rules.
+func (s *FQDNDataServer) SubscribeToDNSRules(in *azureDNSProxy.Request, stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer) error {
+	streamCtx, cancel := context.WithCancel(stream.Context())
+	s.streams.Store(stream, cancel)
+
+	go func() {
+		<-stream.Context().Done()
+		// If the client has closed the connection, the context will be done
+		s.log.Info("Client has closed the connection, closing the stream")
+		s.DeleteStream(stream)
+	}()
+
+	//Send the current state of the DNS rules
+	go func() {
+		s.log.Info("Sending current state of DNS rules")
+		for endpointID, portRules := range s.localRules {
+			for destPortProto, newRules := range portRules {
+				err := s.UpdateSDPAllowed(endpointID, destPortProto, newRules)
+				if err != nil {
+					s.log.Error("Failed to send current state of DNS rules", logfields.Error, err)
+					return
+				}
+			}
+		}
+	}()
+
+	s.log.Info("SubscribeToDNSRules waiting for context to be done")
+	select {
+	case <-streamCtx.Done():
+		s.log.Info("Closing the stream")
+		s.DeleteStream(stream)
+		return streamCtx.Err()
+	case <-s.ctx.Done():
+		s.log.Info("SubscribeToDNSRules done")
+		return s.ctx.Err()
+	}
+}
+
+// cleanupStreams handles the cleanup of streams when the server's context is cancelled.
+func (s *FQDNDataServer) cleanupStreams() {
+	s.streams.Range(func(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, cancelFunc context.CancelFunc) bool {
+		cancelFunc() // Ensure we cancel the context of each stream
+		s.streams.Delete(stream)
+		return true
+	})
+	s.log.Info("All streams have been cleaned up")
+}
+
+func (s *FQDNDataServer) UpdateMappings(stream azureDNSProxy.AzureFQDNData_UpdateMappingsServer) error {
+	s.log.Info("UpdateMappings stream started")
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.log.Info("Context cancelled, stopping UpdateMapping stream")
+			return nil
+		default:
+			update, err := stream.Recv()
+			if err == io.EOF {
+				// End of stream
+				s.log.Info("Stream closed by client")
+				return nil
+			}
+			if err != nil {
+				s.log.Error("Failed to receive update", logfields.Error, err)
+				return err
+			}
+			s.log.Info("Received update", logfields.Response, update)
+			if err := s.updateFQDNMapping(update); err != nil {
+				s.log.Error("Failed to update mapping", logfields.Error, err)
+				return err
+			}
+		}
+	}
+}
+
+func (s *FQDNDataServer) updateFQDNMapping(mappings *azureDNSProxy.AzureFQDNMapping) error {
+	if len(mappings.GetIPS()) == 0 {
+		// We don't have any IPs to update the mapping with
+		return nil
+	}
+
+	// The time is ideally from the time we receive the DNS response
+	// but for now we will use the current time when we receive in the server
+	now := time.Now()
+	var ips []netip.Addr
+	for _, ip := range mappings.GetIPS() {
+		ipaddress, err := netip.ParseAddr(string(ip))
+		if err != nil {
+			s.log.Error("Failed to parse IP", logfields.IPAddr, ip)
+			return fmt.Errorf("failed to parse IP: %s", ip)
+		}
+		ips = append(ips, ipaddress)
+	}
+
+	ep := s.endpointManager.LookupIPv4(string(mappings.ClientIp))
+	if ep == nil {
+		s.log.Error("endpoint not found for IP", logfields.IPAddr, mappings.ClientIp)
+		return fmt.Errorf("endpoint not found for IP: %s", mappings.ClientIp)
+	}
+
+	if mappings.ResponseCode == dns.RcodeSuccess {
+		s.updateOnDNSMsg.UpdateOnDNSMsg(now, ep, mappings.GetFQDN(), ips, int(mappings.GetTTL()), nil)
+	}
+
+	return nil
 }

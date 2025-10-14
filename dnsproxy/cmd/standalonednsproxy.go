@@ -23,6 +23,7 @@ type StandaloneDNSProxyArgs struct {
 	maxRestoreDNSIps       int
 	concurrencyLimit       int
 	concurrencyGracePeriod time.Duration
+	toFqdnServerPort          uint16
 }
 
 type StandaloneDNSProxy struct {

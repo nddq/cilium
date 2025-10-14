@@ -129,6 +129,9 @@ const (
 	// EnableL7Proxy is the name of the option to enable L7 proxy
 	EnableL7Proxy = "enable-l7-proxy"
 
+	// ToFQDNsServerPort is the port on which the toFQDNs server should listen (deprecated should should use "standalone-dns-proxy-server-port")
+	ToFQDNsServerPort = "tofqdns-server-port"
+
 	// EnableTracing enables tracing mode in the agent.
 	EnableTracing = "enable-tracing"
 
@@ -1419,6 +1422,9 @@ type DaemonConfig struct {
 	// EnableSCTP is true when SCTP support is enabled.
 	EnableSCTP bool
 
+	// ToFQDNsServerPort is the user-configured global, shared, toFqdn grpc server port used
+	ToFQDNsServerPort int
+
 	// IPv6MCastDevice is the name of device that joins IPv6's solicitation multicast group
 	IPv6MCastDevice string
 
@@ -2637,6 +2643,7 @@ func (c *DaemonConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 	c.EnableHealthCheckLoadBalancerIP = vp.GetBool(EnableHealthCheckLoadBalancerIP)
 	c.HealthCheckICMPFailureThreshold = vp.GetInt(HealthCheckICMPFailureThreshold)
 	c.EnableLocalNodeRoute = vp.GetBool(EnableLocalNodeRoute)
+	c.ToFQDNsServerPort = vp.GetInt(ToFQDNsServerPort)
 	c.EnablePolicy = strings.ToLower(vp.GetString(EnablePolicy))
 	c.EnableL7Proxy = vp.GetBool(EnableL7Proxy)
 	c.EnableTracing = vp.GetBool(EnableTracing)

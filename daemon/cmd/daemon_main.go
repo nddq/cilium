@@ -711,6 +711,9 @@ func InitGlobalFlags(logger *slog.Logger, cmd *cobra.Command, vp *viper.Viper) {
 	flags.Int(option.ToFQDNsMinTTL, defaults.ToFQDNsMinTTL, "The minimum time, in seconds, to use DNS data for toFQDNs policies")
 	option.BindEnv(vp, option.ToFQDNsMinTTL)
 
+	flags.Int(option.ToFQDNsServerPort, 40045, "Global port on which the in-agent grpc server for fqdn should listen on.(deprecated, use standalone-dns-proxy-server-port instead)")
+	option.BindEnv(vp, option.ToFQDNsServerPort)
+
 	flags.Int(option.ToFQDNsProxyPort, 0, "Global port on which the in-agent DNS proxy should listen. Default 0 is a OS-assigned port.")
 	option.BindEnv(vp, option.ToFQDNsProxyPort)
 

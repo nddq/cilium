@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"net"
 	"net/netip"
+	"reflect"
 	"testing"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/hive/hivetest"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -26,11 +28,13 @@ import (
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/ipcache"
+	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/testutils"
 	testidentity "github.com/cilium/cilium/pkg/testutils/identity"
 	"github.com/cilium/cilium/pkg/time"
 
+	azureDNSProxy "github.com/cilium/cilium/api/v1/dnsproxy"
 	pb "github.com/cilium/cilium/api/v1/standalone-dns-proxy"
 )
 
@@ -82,7 +86,7 @@ func TestFQDNDataServer(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 
 			h := hive.New(
-				cell.Config(defaultConfig),
+				cell.Config(DefaultConfig),
 				cell.Provide(
 					func(logger *slog.Logger) endpointmanager.EndpointManager {
 						return endpointmanager.New(logger, nil, &dummyEpSyncher{}, nil, nil, nil)
@@ -195,7 +199,7 @@ func setupServer(t *testing.T, port int, enableL7Proxy bool, enableStandaloneDNS
 		cell.Module(
 			"test-fqdn-grpc-server",
 			"Test FQDN gRPC server",
-			cell.Config(defaultConfig),
+			cell.Config(DefaultConfig),
 			cell.Provide(
 				func(logger *slog.Logger) endpointmanager.EndpointManager {
 					return endpointmanager.New(logger, nil, &dummyEpSyncher{}, nil, nil, nil)
@@ -414,5 +418,105 @@ func TestIsEnabled(t *testing.T) {
 				require.Nil(t, server)
 			}
 		})
+	}
+}
+
+type mockSubscribeToDNSRulesServer struct {
+	azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer
+	ctx context.Context
+}
+
+func (m *mockSubscribeToDNSRulesServer) Context() context.Context {
+	return m.ctx
+}
+
+func setup(t *testing.T) (*FQDNDataServer, *mockSubscribeToDNSRulesServer, func(), func()) {
+	serverCtx, serverCancel := context.WithCancel(context.Background())
+	// Setup logic here, for example, initializing your server and mock stream
+	s := &FQDNDataServer{
+		log:     hivetest.Logger(t),
+		ctx:     serverCtx,
+		streams: lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
+	}
+	clientCtx, clientCancel := context.WithCancel(context.Background())
+	mockStream := &mockSubscribeToDNSRulesServer{
+		ctx: clientCtx,
+	}
+	return s, mockStream, serverCancel, clientCancel
+}
+
+func checkStreamStored(t *testing.T, s *FQDNDataServer, mockStream *mockSubscribeToDNSRulesServer) {
+	// Check if the mockStream was stored in the FQDNDataServer's streams
+	var found bool
+	s.streams.Range(func(key azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, value context.CancelFunc) bool {
+		keyValue := reflect.ValueOf(key)
+		mockStreamValue := reflect.ValueOf(mockStream)
+
+		if keyValue.Interface() == mockStreamValue.Interface() {
+			found = true
+			return false // Stop the iteration once found
+		}
+		return true
+	})
+	// Use an assertion to check if the mockStream was found
+	assert.True(t, found, "mockStream should be stored in the FQDNDataServer's streams")
+}
+
+func TestStreamIsStored(t *testing.T) {
+	s, mockStream, _, _ := setup(t)
+	go func() {
+		s.SubscribeToDNSRules(&azureDNSProxy.Request{}, mockStream)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	checkStreamStored(t, s, mockStream)
+}
+
+func TestClientConnectionIsClosed(t *testing.T) {
+	s, mockStream, _, clientCancel := setup(t)
+	doneChan := make(chan error, 1) // Use a channel to capture the error
+
+	go func() {
+		err := s.SubscribeToDNSRules(&azureDNSProxy.Request{}, mockStream)
+		doneChan <- err // Send the error to the channel
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	checkStreamStored(t, s, mockStream)
+
+	clientCancel()
+
+	select {
+	case err := <-doneChan:
+		assert.Equal(t, context.Canceled, err)
+		_, ok := s.streams.Load(mockStream)
+		assert.False(t, ok)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Test timed out waiting for SubscribeToDNSRules to return")
+	}
+}
+
+func TestStreamIsClosed(t *testing.T) {
+	s, mockStream, _, _ := setup(t)
+	doneChan := make(chan error, 1) // Use a channel to capture the error
+
+	go func() {
+		err := s.SubscribeToDNSRules(&azureDNSProxy.Request{}, mockStream)
+		doneChan <- err // Send the error to the channel
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	checkStreamStored(t, s, mockStream)
+
+	cancel, _ := s.streams.Load(mockStream)
+	cancel()
+
+	select {
+	case err := <-doneChan:
+		assert.Equal(t, context.Canceled, err)
+		_, ok := s.streams.Load(mockStream)
+		assert.False(t, ok)
+	case <-time.After(10 * time.Second):
+		t.Fatal("Test timed out waiting for SubscribeToDNSRules to return")
 	}
 }
