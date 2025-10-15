@@ -14,7 +14,6 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/types"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
-	"github.com/cilium/cilium/pkg/node"
 )
 
 type StreamProcessorParams struct {
@@ -66,20 +65,9 @@ func NewStreamProcessor(params *StreamProcessorParams) *StreamProcessor {
 }
 
 func (sp *StreamProcessor) SubscribeToEndpointEvents() {
-	// Get the local node IP for filtering
-	localNodeIP := node.GetCiliumEndpointNodeIP(sp.log)
-
 	// TODO(hemanthmalla): How should retries be configured here ?
 	newEvents := sp.K8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Events(context.TODO(), resource.WithErrorHandler(resource.AlwaysRetry))
 	for e := range newEvents { // Filter out local endpoints
-		if e.Object == nil {
-			e.Done(nil)
-			continue
-		}
-		if e.Object.Networking != nil && e.Object.Networking.NodeIP == localNodeIP {
-			e.Done(nil)
-			continue
-		}
 		switch e.Kind {
 		case resource.Upsert:
 			sp.endpointRecv <- &EndpointEvent{
