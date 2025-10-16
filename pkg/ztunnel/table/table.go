@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Authors of Cilium
 
-package reconciler
+package table
 
 import (
 	"github.com/cilium/statedb"

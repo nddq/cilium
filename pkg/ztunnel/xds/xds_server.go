@@ -30,6 +30,8 @@ import (
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/ztunnel/table"
+	"github.com/cilium/statedb"
 )
 
 const (
@@ -68,6 +70,9 @@ type Server struct {
 	log                       *slog.Logger
 	epManager                 endpointmanager.EndpointManager
 	k8sCiliumEndpointsWatcher *watchers.K8sCiliumEndpointsWatcher
+	enrolledNamespaceTable    statedb.RWTable[*table.EnrolledNamespace]
+	endpointEventChan         chan *EndpointEvent
+	db                        *statedb.DB
 	caCert                    *x509.Certificate
 	// cache the PEM encoded certificate, we return this as the trust anchor
 	// on zTunnel certificate creation requests.
@@ -77,13 +82,8 @@ type Server struct {
 	v3.UnimplementedAggregatedDiscoveryServiceServer
 }
 
-func newServer(log *slog.Logger, EPManager endpointmanager.EndpointManager, k8sCiliumEndpointsWatcher *watchers.K8sCiliumEndpointsWatcher) (*Server, error) {
-	x := &Server{
-		log:                       log,
-		k8sCiliumEndpointsWatcher: k8sCiliumEndpointsWatcher,
-		epManager:                 EPManager,
-	}
-	return x, nil
+func (x *Server) EndpointEventChannel() chan *EndpointEvent {
+	return x.endpointEventChan
 }
 
 // initCA performs the required action to initialize the certificate authority
@@ -374,8 +374,10 @@ func (x *Server) DeltaAggregatedResources(stream v3.AggregatedDiscoveryService_D
 	params := StreamProcessorParams{
 		Stream:                    stream,
 		StreamRecv:                make(chan *v3.DeltaDiscoveryRequest, 1),
-		EndpointEventRecv:         make(chan *EndpointEvent, 1024),
+		EndpointEventRecv:         x.endpointEventChan,
 		K8sCiliumEndpointsWatcher: x.k8sCiliumEndpointsWatcher,
+		EnrolledNamespaceTable:    x.enrolledNamespaceTable,
+		DB:                        x.db,
 		Log:                       x.log,
 	}
 

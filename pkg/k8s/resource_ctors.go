@@ -403,6 +403,7 @@ func CiliumSlimEndpointResource(params CiliumResourceParams, _ *node.LocalNodeSt
 		opts...,
 	)
 	indexers := cache.Indexers{
+		NamespaceIndex: namespaceIndexFunc,
 		"localNode": func(obj any) ([]string, error) {
 			return ciliumEndpointLocalPodIndexFunc(params.Logger, obj)
 		},

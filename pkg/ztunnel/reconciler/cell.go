@@ -5,6 +5,8 @@ package reconciler
 
 import (
 	"github.com/cilium/cilium/daemon/k8s"
+	"github.com/cilium/cilium/pkg/ztunnel/config"
+	"github.com/cilium/cilium/pkg/ztunnel/table"
 
 	"github.com/cilium/hive/cell"
 	"github.com/cilium/statedb"
@@ -15,7 +17,7 @@ var Cell = cell.Module(
 	"enrollment-reconciler",
 	"Reconciler for namespace enrollment for ztunnel mTLS",
 	cell.Provide(
-		NewEnrolledNamespacesTable,
+		table.NewEnrolledNamespacesTable,
 		NewEnrollmentReconciler,
 	),
 	cell.Invoke(statedb.Derive("derive-desired-mtls-namespace-enrollments", defaultNamespaceToEnrolledNamespace)),
@@ -24,15 +26,19 @@ var Cell = cell.Module(
 
 func registerEnrollmentReconciler(
 	params reconciler.Params,
-	ops reconciler.Operations[*EnrolledNamespace],
-	tbl statedb.RWTable[*EnrolledNamespace],
+	ops reconciler.Operations[*table.EnrolledNamespace],
+	tbl statedb.RWTable[*table.EnrolledNamespace],
+	cfg config.Config,
 ) error {
+	if !cfg.EnableZTunnel {
+		return nil
+	}
 	_, err := reconciler.Register(
 		params,
 		tbl,
-		(*EnrolledNamespace).Clone,
-		(*EnrolledNamespace).SetStatus,
-		(*EnrolledNamespace).GetStatus,
+		(*table.EnrolledNamespace).Clone,
+		(*table.EnrolledNamespace).SetStatus,
+		(*table.EnrolledNamespace).GetStatus,
 		ops,
 		nil, // no batch operations support
 		reconciler.WithoutPruning(),
@@ -43,18 +49,18 @@ func registerEnrollmentReconciler(
 	return nil
 }
 
-func defaultNamespaceToEnrolledNamespace(ns k8s.Namespace, deleted bool) (*EnrolledNamespace, statedb.DeriveResult) {
+func defaultNamespaceToEnrolledNamespace(ns k8s.Namespace, deleted bool) (*table.EnrolledNamespace, statedb.DeriveResult) {
 	enrolled := true
 	if mtlsValue, exists := ns.Labels["mtls-enabled"]; !exists || mtlsValue != "true" {
 		enrolled = false
 	}
 	if deleted || !enrolled {
-		return &EnrolledNamespace{
+		return &table.EnrolledNamespace{
 			Name:   ns.Name,
 			Status: reconciler.StatusPending(),
 		}, statedb.DeriveDelete
 	}
-	return &EnrolledNamespace{
+	return &table.EnrolledNamespace{
 		Name:   ns.Name,
 		Status: reconciler.StatusPending(),
 	}, statedb.DeriveInsert

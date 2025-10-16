@@ -14,6 +14,8 @@ import (
 	"github.com/cilium/cilium/pkg/k8s/types"
 	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/ztunnel/table"
+	"github.com/cilium/statedb"
 )
 
 type StreamProcessorParams struct {
@@ -26,6 +28,8 @@ type StreamProcessorParams struct {
 	// this is fed by subscribing to EndpointManager.
 	EndpointEventRecv         chan *EndpointEvent
 	K8sCiliumEndpointsWatcher *watchers.K8sCiliumEndpointsWatcher
+	EnrolledNamespaceTable    statedb.RWTable[*table.EnrolledNamespace]
+	DB                        *statedb.DB
 	Log                       *slog.Logger
 }
 
@@ -38,6 +42,8 @@ type StreamProcessor struct {
 	streamRecv                chan *v3.DeltaDiscoveryRequest
 	endpointRecv              chan *EndpointEvent
 	K8sCiliumEndpointsWatcher *watchers.K8sCiliumEndpointsWatcher
+	enrolledNamespaceTable    statedb.RWTable[*table.EnrolledNamespace]
+	db                        *statedb.DB
 	expectedNonce             map[string]struct{}
 	log                       *slog.Logger
 	endpointSubscriber        EndpointEventSource
@@ -56,6 +62,8 @@ func NewStreamProcessor(params *StreamProcessorParams) *StreamProcessor {
 		streamRecv:                params.StreamRecv,
 		endpointRecv:              params.EndpointEventRecv,
 		K8sCiliumEndpointsWatcher: params.K8sCiliumEndpointsWatcher,
+		enrolledNamespaceTable:    params.EnrolledNamespaceTable,
+		db:                        params.DB,
 		log:                       params.Log,
 		expectedNonce:             make(map[string]struct{}),
 	}
@@ -65,9 +73,22 @@ func NewStreamProcessor(params *StreamProcessorParams) *StreamProcessor {
 }
 
 func (sp *StreamProcessor) SubscribeToEndpointEvents() {
+	_, initialized := sp.enrolledNamespaceTable.Initialized(sp.db.ReadTxn())
+	<-initialized
 	// TODO(hemanthmalla): How should retries be configured here ?
 	newEvents := sp.K8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Events(context.TODO(), resource.WithErrorHandler(resource.AlwaysRetry))
-	for e := range newEvents { // Filter out local endpoints
+	for e := range newEvents {
+		if e.Object == nil {
+			e.Done(nil)
+			continue
+		}
+		// Filter events based on enrolled namespaces.
+		txn := sp.db.ReadTxn()
+		_, _, found := sp.enrolledNamespaceTable.Get(txn, table.EnrolledNamespacesNameIndex.Query(e.Object.GetNamespace()))
+		if !found {
+			e.Done(nil)
+			continue
+		}
 		switch e.Kind {
 		case resource.Upsert:
 			sp.endpointRecv <- &EndpointEvent{
@@ -91,6 +112,8 @@ func (sp *StreamProcessor) ListAllEndpoints() ([]*types.CiliumEndpoint, error) {
 		sp.log.Error("K8sCiliumEndpointsWatcher is not initialized ")
 		return nil, fmt.Errorf("K8sCiliumEndpointsWatcher is not initialized")
 	}
+	_, initialized := sp.enrolledNamespaceTable.Initialized(sp.db.ReadTxn())
+	<-initialized
 
 	// TODO(vmalla): Handle context properly
 	cepStore, err := sp.K8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Store(context.TODO())
@@ -98,10 +121,17 @@ func (sp *StreamProcessor) ListAllEndpoints() ([]*types.CiliumEndpoint, error) {
 		sp.log.Debug("initialized new stream for resource")
 		return nil, fmt.Errorf("failed to get CiliumEndpoint store from K8sCiliumEndpointsWatcher: %v", err)
 	}
-
 	allEps := cepStore.List()
-
-	return allEps, nil
+	filtersEps := make([]*types.CiliumEndpoint, 0, len(allEps))
+	for _, cep := range allEps {
+		txn := sp.db.ReadTxn()
+		_, _, found := sp.enrolledNamespaceTable.Get(txn, table.EnrolledNamespacesNameIndex.Query(cep.GetNamespace()))
+		if !found {
+			continue
+		}
+		filtersEps = append(filtersEps, cep)
+	}
+	return filtersEps, nil
 }
 
 // handleAddressTypeURL handles a subscription for xdsTypeURLAddress type URLs.

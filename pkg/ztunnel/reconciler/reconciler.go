@@ -13,8 +13,13 @@ import (
 	"github.com/cilium/cilium/pkg/endpoint"
 	"github.com/cilium/cilium/pkg/endpointmanager"
 	"github.com/cilium/cilium/pkg/endpointstate"
+	"github.com/cilium/cilium/pkg/k8s"
+	"github.com/cilium/cilium/pkg/k8s/watchers"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/ztunnel/config"
+	"github.com/cilium/cilium/pkg/ztunnel/table"
+	"github.com/cilium/cilium/pkg/ztunnel/xds"
 	"github.com/cilium/cilium/pkg/ztunnel/zds"
 
 	"github.com/cilium/hive/cell"
@@ -26,39 +31,49 @@ type params struct {
 	cell.In
 
 	DB                     *statedb.DB
-	EnrolledNamespaceTable statedb.RWTable[*EnrolledNamespace]
+	EnrolledNamespaceTable statedb.RWTable[*table.EnrolledNamespace]
 	Logger                 *slog.Logger
 	Lifecycle              cell.Lifecycle
 	EndpointManager        endpointmanager.EndpointManager
 	EndpointEnroller       zds.EndpointEnroller
 	RestorerPromise        promise.Promise[endpointstate.Restorer]
+	EndpointEventChannel   chan *xds.EndpointEvent
+	K8sWatcher             *watchers.K8sWatcher
+	Config                 config.Config
 }
 
 type EnrollmentReconciler struct {
-	db                     *statedb.DB
-	logger                 *slog.Logger
-	enrolledNamespaceTable statedb.RWTable[*EnrolledNamespace]
-	endpointManager        endpointmanager.EndpointManager
-	endpointEnroller       zds.EndpointEnroller
-	restorerPromise        promise.Promise[endpointstate.Restorer]
-	initialized            chan struct{}
+	db                        *statedb.DB
+	logger                    *slog.Logger
+	enrolledNamespaceTable    statedb.RWTable[*table.EnrolledNamespace]
+	endpointManager           endpointmanager.EndpointManager
+	endpointEnroller          zds.EndpointEnroller
+	restorerPromise           promise.Promise[endpointstate.Restorer]
+	endpointEventCh           chan *xds.EndpointEvent
+	k8sCiliumEndpointsWatcher *watchers.K8sCiliumEndpointsWatcher
+	initialized               chan struct{}
 }
 
-func NewEnrollmentReconciler(cfg params) reconciler.Operations[*EnrolledNamespace] {
+func NewEnrollmentReconciler(cfg params) reconciler.Operations[*table.EnrolledNamespace] {
+	if !cfg.Config.EnableZTunnel {
+		return nil
+	}
 	ops := &EnrollmentReconciler{
-		logger:                 cfg.Logger,
-		db:                     cfg.DB,
-		enrolledNamespaceTable: cfg.EnrolledNamespaceTable,
-		endpointManager:        cfg.EndpointManager,
-		endpointEnroller:       cfg.EndpointEnroller,
-		restorerPromise:        cfg.RestorerPromise,
-		initialized:            make(chan struct{}),
+		logger:                    cfg.Logger,
+		db:                        cfg.DB,
+		enrolledNamespaceTable:    cfg.EnrolledNamespaceTable,
+		endpointManager:           cfg.EndpointManager,
+		endpointEnroller:          cfg.EndpointEnroller,
+		restorerPromise:           cfg.RestorerPromise,
+		endpointEventCh:           cfg.EndpointEventChannel,
+		k8sCiliumEndpointsWatcher: cfg.K8sWatcher.GetK8sCiliumEndpointsWatcher(),
+		initialized:               make(chan struct{}),
 	}
 	cfg.Lifecycle.Append(ops)
 	return ops
 }
 
-func (ops *EnrollmentReconciler) Update(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *EnrolledNamespace) error {
+func (ops *EnrollmentReconciler) Update(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *table.EnrolledNamespace) error {
 	<-ops.initialized
 	// Enroll all endpoints in this namespace
 	endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
@@ -76,11 +91,27 @@ func (ops *EnrollmentReconciler) Update(ctx context.Context, txn statedb.ReadTxn
 			return err
 		}
 	}
+	cepStore, err := ops.k8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Store(ctx)
+	if err != nil {
+		ops.logger.Error("Failed to get CiliumEndpoint store from K8sCiliumEndpointsWatcher", logfields.Error, err)
+		return err
+	}
+	objs, err := cepStore.ByIndex(k8s.NamespaceIndex, ns.Name)
+	if err != nil {
+		ops.logger.Error("Failed to get CiliumEndpoints by namespace from store", logfields.K8sNamespace, ns.Name, logfields.Error, err)
+		return err
+	}
+	for _, cep := range objs {
+		ops.endpointEventCh <- &xds.EndpointEvent{
+			Type:           xds.CREATE,
+			CiliumEndpoint: cep,
+		}
+	}
 	ops.logger.Info("Enrolled all endpoints in namespace", logfields.K8sNamespace, ns.Name)
 	return nil
 }
 
-func (ops *EnrollmentReconciler) Delete(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *EnrolledNamespace) error {
+func (ops *EnrollmentReconciler) Delete(ctx context.Context, txn statedb.ReadTxn, rev statedb.Revision, ns *table.EnrolledNamespace) error {
 	<-ops.initialized
 	// Disenroll all endpoints in this namespace
 	endpoints := ops.endpointManager.GetEndpointsByNamespace(ns.Name)
@@ -98,6 +129,22 @@ func (ops *EnrollmentReconciler) Delete(ctx context.Context, txn statedb.ReadTxn
 			return err
 		}
 	}
+	cepStore, err := ops.k8sCiliumEndpointsWatcher.GetCiliumEndpointResource().Store(ctx)
+	if err != nil {
+		ops.logger.Error("Failed to get CiliumEndpoint store from K8sCiliumEndpointsWatcher", logfields.Error, err)
+		return err
+	}
+	objs, err := cepStore.ByIndex(k8s.NamespaceIndex, ns.Name)
+	if err != nil {
+		ops.logger.Error("Failed to get CiliumEndpoints by namespace from store", logfields.K8sNamespace, ns.Name, logfields.Error, err)
+		return err
+	}
+	for _, cep := range objs {
+		ops.endpointEventCh <- &xds.EndpointEvent{
+			Type:           xds.REMOVED,
+			CiliumEndpoint: cep,
+		}
+	}
 	ops.logger.Info("Disenrolled all endpoints in namespace",
 		logfields.K8sNamespace, ns.Name,
 	)
@@ -105,11 +152,11 @@ func (ops *EnrollmentReconciler) Delete(ctx context.Context, txn statedb.ReadTxn
 }
 
 // Prune unexpected entries.
-func (ops *EnrollmentReconciler) Prune(ctx context.Context, txn statedb.ReadTxn, objects iter.Seq2[*EnrolledNamespace, statedb.Revision]) error {
+func (ops *EnrollmentReconciler) Prune(ctx context.Context, txn statedb.ReadTxn, objects iter.Seq2[*table.EnrolledNamespace, statedb.Revision]) error {
 	return nil
 }
 
-var _ reconciler.Operations[*EnrolledNamespace] = &EnrollmentReconciler{}
+var _ reconciler.Operations[*table.EnrolledNamespace] = &EnrollmentReconciler{}
 
 func (ops *EnrollmentReconciler) Start(ctx cell.HookContext) error {
 	_, initialized := ops.enrolledNamespaceTable.Initialized(ops.db.ReadTxn())
@@ -143,7 +190,7 @@ func (ops *EnrollmentReconciler) Start(ctx cell.HookContext) error {
 		}
 		// Check if namespace is enrolled
 		txn := ops.db.ReadTxn()
-		_, _, found := ops.enrolledNamespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
+		_, _, found := ops.enrolledNamespaceTable.Get(txn, table.EnrolledNamespacesNameIndex.Query(epNamespace))
 		if !found {
 			ops.logger.Info("Skipping enrollment of endpoint in unenrolled namespace",
 				logfields.K8sNamespace, epNamespace,
@@ -179,7 +226,7 @@ func (ops *EnrollmentReconciler) EndpointCreated(ep *endpoint.Endpoint) {
 	}
 	// Check if namespace is enrolled
 	txn := ops.db.ReadTxn()
-	_, _, found := ops.enrolledNamespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
+	_, _, found := ops.enrolledNamespaceTable.Get(txn, table.EnrolledNamespacesNameIndex.Query(epNamespace))
 	if !found {
 		ops.logger.Info("Skipping enrollment of endpoint in unenrolled namespace",
 			logfields.K8sNamespace, epNamespace,
@@ -205,7 +252,7 @@ func (ops *EnrollmentReconciler) EndpointDeleted(ep *endpoint.Endpoint, _ endpoi
 	}
 	// Check if namespace is enrolled
 	txn := ops.db.ReadTxn()
-	_, _, found := ops.enrolledNamespaceTable.Get(txn, EnrolledNamespacesNameIndex.Query(epNamespace))
+	_, _, found := ops.enrolledNamespaceTable.Get(txn, table.EnrolledNamespacesNameIndex.Query(epNamespace))
 	if !found {
 		ops.logger.Info("Skipping disenrollment of endpoint in unenrolled namespace",
 			logfields.K8sNamespace, epNamespace,

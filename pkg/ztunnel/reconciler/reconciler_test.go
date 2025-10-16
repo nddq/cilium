@@ -28,6 +28,7 @@ import (
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/promise"
+	"github.com/cilium/cilium/pkg/ztunnel/table"
 )
 
 // MockEndpointManager is a mock implementation of endpointmanager.EndpointManager
@@ -257,9 +258,9 @@ func createTestEndpoint(id uint16, namespace, podName, netnsPath string) *endpoi
 	return ep
 }
 
-func setupTest(t *testing.T) (*statedb.DB, statedb.RWTable[*EnrolledNamespace], *MockEndpointManager, *MockEndpointEnroller, *EnrollmentReconciler) {
+func setupTest(t *testing.T) (*statedb.DB, statedb.RWTable[*table.EnrolledNamespace], *MockEndpointManager, *MockEndpointEnroller, *EnrollmentReconciler) {
 	db := statedb.New()
-	tbl, err := NewEnrolledNamespacesTable(db)
+	tbl, err := table.NewEnrolledNamespacesTable(db)
 	require.NoError(t, err)
 
 	logger := hivetest.Logger(t)
@@ -355,7 +356,7 @@ func TestEnrollmentReconciler_Update(t *testing.T) {
 			mockEpMgr.endpoints = tt.endpoints
 			mockEnroller.enrollErr = tt.enrollErr
 
-			ns := &EnrolledNamespace{
+			ns := &table.EnrolledNamespace{
 				Name:   tt.namespace,
 				Status: reconciler.StatusPending(),
 			}
@@ -432,7 +433,7 @@ func TestEnrollmentReconciler_Delete(t *testing.T) {
 			mockEnroller.disenrollErr = tt.disenrollErr
 
 			// Delete namespace
-			ns := &EnrolledNamespace{
+			ns := &table.EnrolledNamespace{
 				Name:   tt.namespace,
 				Status: reconciler.StatusPending(),
 			}
@@ -505,7 +506,7 @@ func TestEnrollmentReconciler_EndpointCreated(t *testing.T) {
 			txn := db.WriteTxn(tbl)
 			complete := tbl.RegisterInitializer(txn, "test")
 			for _, ns := range tt.enrolledNs {
-				tbl.Insert(txn, &EnrolledNamespace{
+				tbl.Insert(txn, &table.EnrolledNamespace{
 					Name:   ns,
 					Status: reconciler.StatusPending(),
 				})
@@ -577,7 +578,7 @@ func TestEnrollmentReconciler_EndpointDeleted(t *testing.T) {
 			txn := db.WriteTxn(tbl)
 			complete := tbl.RegisterInitializer(txn, "test")
 			for _, ns := range tt.enrolledNs {
-				tbl.Insert(txn, &EnrolledNamespace{
+				tbl.Insert(txn, &table.EnrolledNamespace{
 					Name:   ns,
 					Status: reconciler.StatusPending(),
 				})
