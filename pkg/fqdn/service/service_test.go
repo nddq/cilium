@@ -30,6 +30,7 @@ import (
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/proxy/accesslog"
 	"github.com/cilium/cilium/pkg/testutils"
 	testidentity "github.com/cilium/cilium/pkg/testutils/identity"
 	"github.com/cilium/cilium/pkg/time"
@@ -56,6 +57,15 @@ func (m *mockUpdater) UpdateIdentities(_, _ identity.IdentityMap) <-chan struct{
 	out := make(chan struct{})
 	close(out)
 	return out
+}
+
+type noopNotifier struct{}
+
+func (*noopNotifier) NewProxyLogRecord(l *accesslog.LogRecord) error { return nil }
+
+type dummyInfoRegistry struct{}
+
+func (*dummyInfoRegistry) FillEndpointInfo(ctx context.Context, info *accesslog.EndpointInfo, addr netip.Addr) {
 }
 
 func TestFQDNDataServer(t *testing.T) {
@@ -130,6 +140,9 @@ func TestFQDNDataServer(t *testing.T) {
 						return newBufconnListener(lis)
 					},
 					newServer,
+					func() accesslog.ProxyAccessLogger {
+						return accesslog.NewProxyAccessLogger(hivetest.Logger(t), accesslog.ProxyAccessLoggerConfig{}, &noopNotifier{}, &dummyInfoRegistry{})
+					},
 				),
 				cell.Invoke(func(_ *FQDNDataServer) {}))
 
@@ -240,6 +253,9 @@ func setupServer(t *testing.T, port int, enableL7Proxy bool, enableStandaloneDNS
 					return newBufconnListener(lis)
 				},
 				newServer,
+				func() accesslog.ProxyAccessLogger {
+					return accesslog.NewProxyAccessLogger(hivetest.Logger(t), accesslog.ProxyAccessLoggerConfig{}, &noopNotifier{}, &dummyInfoRegistry{})
+				},
 			)),
 		cell.Invoke(func(_f *FQDNDataServer) {
 			fqdnDataServer = _f
@@ -277,7 +293,7 @@ func TestHandleIPUpsert(t *testing.T) {
 	endptMgr := endpointmanager.New(hivetest.Logger(t), nil, &dummyEpSyncher{}, nil, nil, nil)
 
 	// create a new server instance
-	server := NewServer(endptMgr, nil, 1234, hivetest.Logger(t), nil)
+	server := NewServer(endptMgr, nil, 1234, hivetest.Logger(t), nil, nil)
 
 	// Prepare a valid IPv4 (1.2.3.4/32).
 	prefix := netip.MustParsePrefix("1.2.3.4/32")

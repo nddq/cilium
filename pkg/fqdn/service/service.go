@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"slices"
+	"strings"
 
 	"github.com/cilium/dns"
 	"github.com/cilium/hive/cell"
@@ -30,7 +31,9 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/policy"
+	"github.com/cilium/cilium/pkg/proxy/accesslog"
 	"github.com/cilium/cilium/pkg/time"
+	"github.com/cilium/cilium/pkg/u8proto"
 
 	azureDNSProxy "github.com/cilium/cilium/api/v1/dnsproxy"
 	pb "github.com/cilium/cilium/api/v1/standalone-dns-proxy"
@@ -92,8 +95,19 @@ type FQDNDataServer struct {
 	streams lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]
 
 	localRules map[uint64]map[restore.PortProto]policy.L7DataMap
+
+	proxyAccessLogger accesslog.ProxyAccessLogger
 }
 type updateOnDNSMsgFunc func(responseIPs []netip.Addr, lookupTime time.Time, qname string, TTL uint32, ep *endpoint.Endpoint, stat *dnsproxy.ProxyRequestContext)
+
+// ConvertToUint16 converts a slice of uint32 to a slice of uint16
+func ConvertToUint16(input []uint32) []uint16 {
+	output := make([]uint16, len(input))
+	for i, v := range input {
+		output[i] = uint16(v)
+	}
+	return output
+}
 
 var (
 	kaep = keepalive.EnforcementPolicy{
@@ -156,7 +170,7 @@ func (s *FQDNDataServer) StreamPolicyState(stream pb.FQDNData_StreamPolicyStateS
 }
 
 // NewServer creates a new FQDNDataServer which is used to handle the Standalone DNS Proxy grpc service
-func NewServer(endpointManager endpointmanager.EndpointManager, updateOnDNSMsg messagehandler.DNSMessageHandler, port int, logger *slog.Logger, listener listenConfig) *FQDNDataServer {
+func NewServer(endpointManager endpointmanager.EndpointManager, updateOnDNSMsg messagehandler.DNSMessageHandler, port int, logger *slog.Logger, listener listenConfig, proxyLogger accesslog.ProxyAccessLogger) *FQDNDataServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	fqdnDataServer := &FQDNDataServer{
 		port:                port,
@@ -169,15 +183,18 @@ func NewServer(endpointManager endpointmanager.EndpointManager, updateOnDNSMsg m
 		enabled:             true,
 
 		// Azure's DNS Proxy fields
-		ctx:        ctx,
-		cancel:     cancel,
-		streams:    lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
-		localRules: make(map[uint64]map[restore.PortProto]policy.L7DataMap),
+		ctx:               ctx,
+		cancel:            cancel,
+		streams:           lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
+		localRules:        make(map[uint64]map[restore.PortProto]policy.L7DataMap),
+		proxyAccessLogger: proxyLogger,
 	}
 
 	grpcServer := grpc.NewServer(grpc.KeepaliveEnforcementPolicy(kaep), grpc.KeepaliveParams(kasp))
 	fqdnDataServer.grpcServer = grpcServer
 	pb.RegisterFQDNDataServer(grpcServer, fqdnDataServer)
+
+	azureDNSProxy.RegisterAzureFQDNDataServer(grpcServer, fqdnDataServer)
 	return fqdnDataServer
 }
 
@@ -339,6 +356,7 @@ func (s *FQDNDataServer) UpdateSDPAllowed(endpointID uint64, destPortProto resto
 	dnsPolicyRules := &azureDNSProxy.DNSPolicyRules{
 		EndpointId: endpointID,
 		Port:       uint32(destPortProto.Port()),
+		Protocol:   uint32(destPortProto.Protocol()),
 		Rules:      dnsPolicyRule,
 	}
 
@@ -354,9 +372,9 @@ func (s *FQDNDataServer) UpdateSDPAllowed(endpointID uint64, destPortProto resto
 	}
 	s.localRules[endpointID][destPortProto] = newRules
 
-	s.log.Info("Sending Policy updates to sdp", logfields.Rules, dnsPolicyRules)
+	s.log.Debug("Sending Policy updates to sdp", logfields.Rules, dnsPolicyRules)
 	s.streams.Range(func(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, cancel context.CancelFunc) bool {
-		s.log.Info("Sending update to stream", logfields.Key, stream)
+		s.log.Debug("Sending update to stream", logfields.Key, stream)
 		if err := stream.Send(dnsPolicyRules); err != nil {
 			s.log.Error("Failed to send update", logfields.Error, err)
 			// Cancel the goroutine and remove the stream from the map
@@ -392,7 +410,7 @@ func (s *FQDNDataServer) SubscribeToDNSRules(in *azureDNSProxy.Request, stream a
 
 	//Send the current state of the DNS rules
 	go func() {
-		s.log.Info("Sending current state of DNS rules")
+		s.log.Debug("Sending current state of DNS rules")
 		for endpointID, portRules := range s.localRules {
 			for destPortProto, newRules := range portRules {
 				err := s.UpdateSDPAllowed(endpointID, destPortProto, newRules)
@@ -404,7 +422,7 @@ func (s *FQDNDataServer) SubscribeToDNSRules(in *azureDNSProxy.Request, stream a
 		}
 	}()
 
-	s.log.Info("SubscribeToDNSRules waiting for context to be done")
+	s.log.Debug("SubscribeToDNSRules waiting for context to be done")
 	select {
 	case <-streamCtx.Done():
 		s.log.Info("Closing the stream")
@@ -419,7 +437,15 @@ func (s *FQDNDataServer) SubscribeToDNSRules(in *azureDNSProxy.Request, stream a
 // cleanupStreams handles the cleanup of streams when the server's context is cancelled.
 func (s *FQDNDataServer) cleanupStreams() {
 	s.streams.Range(func(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, cancelFunc context.CancelFunc) bool {
-		cancelFunc() // Ensure we cancel the context of each stream
+		cancelFunc()
+		if closer, ok := stream.(io.Closer); ok {
+			err := closer.Close()
+			if err != nil {
+				s.log.Error("Error closing stream", logfields.Error, err)
+			}
+		} else {
+			s.log.Warn("Stream does not implement io.Closer", logfields.Key, stream)
+		}
 		s.streams.Delete(stream)
 		return true
 	})
@@ -427,7 +453,7 @@ func (s *FQDNDataServer) cleanupStreams() {
 }
 
 func (s *FQDNDataServer) UpdateMappings(stream azureDNSProxy.AzureFQDNData_UpdateMappingsServer) error {
-	s.log.Info("UpdateMappings stream started")
+	s.log.Debug("UpdateMappings stream started")
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -444,21 +470,55 @@ func (s *FQDNDataServer) UpdateMappings(stream azureDNSProxy.AzureFQDNData_Updat
 				s.log.Error("Failed to receive update", logfields.Error, err)
 				return err
 			}
-			s.log.Info("Received update", logfields.Response, update)
+			s.log.Debug("Received update", logfields.Response, update)
+			requestId := update.GetRequestId()
+			response := &azureDNSProxy.Result{
+				Success:   true,
+				RequestId: requestId,
+			}
 			if err := s.updateFQDNMapping(update); err != nil {
 				s.log.Error("Failed to update mapping", logfields.Error, err)
+				response.Success = false
+				if sendErr := s.sendResponse(stream, response); sendErr != nil {
+					s.log.Error("Failed to send response", logfields.Error, sendErr)
+				}
+				return err
+			}
+
+			if err := s.sendResponse(stream, response); err != nil {
+				s.log.Error("Failed to send response", logfields.Error, err)
 				return err
 			}
 		}
 	}
 }
 
-func (s *FQDNDataServer) updateFQDNMapping(mappings *azureDNSProxy.AzureFQDNMapping) error {
-	if len(mappings.GetIPS()) == 0 {
-		// We don't have any IPs to update the mapping with
-		return nil
-	}
+func (s *FQDNDataServer) sendResponse(stream azureDNSProxy.AzureFQDNData_UpdateMappingsServer, response *azureDNSProxy.Result) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 
+	sendErr := make(chan error, 1)
+
+	go func() {
+		sendErr <- stream.Send(response)
+	}()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case err := <-sendErr:
+		return err
+	}
+}
+
+// updateFQDNMapping updates the FQDN mapping with the given data
+// SDP sends the fqdn mapping to cilium agent
+// Steps to update the mapping:
+// 1. Get the endpoint from the IP
+// 2. If the endpoint is not found, return an error
+// 3. If the IPs are empty, log the request(for hubble to read)
+// 4. If the IPs are not empty, update the cilium agent with the mapping and  log the request(for hubble to read)
+func (s *FQDNDataServer) updateFQDNMapping(mappings *azureDNSProxy.AzureFQDNMapping) error {
 	// The time is ideally from the time we receive the DNS response
 	// but for now we will use the current time when we receive in the server
 	now := time.Now()
@@ -471,16 +531,109 @@ func (s *FQDNDataServer) updateFQDNMapping(mappings *azureDNSProxy.AzureFQDNMapp
 		}
 		ips = append(ips, ipaddress)
 	}
+	metrics := mappings.GetMetrics()
 
-	ep := s.endpointManager.LookupIPv4(string(mappings.ClientIp))
+	endpointAddr, err := netip.ParseAddr(string(mappings.ClientIp))
+	if err != nil {
+		return fmt.Errorf("invalid IP %s for endpoint lookup", string(mappings.ClientIp))
+	}
+
+	ep := s.endpointManager.LookupIP(endpointAddr)
 	if ep == nil {
 		s.log.Error("endpoint not found for IP", logfields.IPAddr, mappings.ClientIp)
 		return fmt.Errorf("endpoint not found for IP: %s", mappings.ClientIp)
 	}
 
-	if mappings.ResponseCode == dns.RcodeSuccess {
+	if len(mappings.GetIPS()) == 0 {
+		// We don't have any IPs to update the mapping with
+		s.logDNSRequest(ep, metrics, ips, mappings.GetFQDN(), mappings.GetTTL(), mappings.GetResponseCode())
+		return nil
+	}
+
+	if mappings.GetResponseCode() == dns.RcodeSuccess {
 		s.updateOnDNSMsg.UpdateOnDNSMsg(now, ep, mappings.GetFQDN(), ips, int(mappings.GetTTL()), nil)
 	}
 
+	s.logDNSRequest(ep, metrics, ips, mappings.GetFQDN(), mappings.GetTTL(), mappings.GetResponseCode())
 	return nil
+}
+
+// logDNSRequest logs the DNS request to be used by hubble for metrics
+// Cilium agent calls this function to log the DNS request when the SDP sends the fqdn mapping
+// It follows the same format as the cilium inbuilt dns proxy
+// The data from the SDP is parsed and logged for hubble to read
+func (s *FQDNDataServer) logDNSRequest(ep *endpoint.Endpoint, metrics *azureDNSProxy.MetricsData, ips []netip.Addr, fqdn string, TTL uint32, responseCode uint32) {
+	if metrics == nil {
+		s.log.Debug("Metrics data is nil")
+		return
+	}
+	var verdict accesslog.FlowVerdict
+	var reason string
+	allowed := metrics.GetAllowed()
+	statErr := metrics.GetProcessingStats().GetErr()
+	switch {
+	case statErr != "":
+		verdict = accesslog.VerdictError
+		reason = "Error: " + statErr
+	case allowed:
+		verdict = accesslog.VerdictForwarded
+		reason = "Allowed by policy"
+	case !allowed:
+		verdict = accesslog.VerdictDenied
+		reason = "Denied by policy"
+	}
+
+	flowType, addrInfo := GetFlowType(ep, metrics.GetEndpointIpPort(), metrics.GetServerAddr(),
+		identity.NumericIdentity(metrics.GetServerIdentity()), metrics.GetDnsResponseData().GetResponse())
+	var protoID = u8proto.ProtoIDs[strings.ToLower(metrics.GetProtocol())]
+
+	logContext, lcncl := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer lcncl()
+
+	record := s.proxyAccessLogger.NewLogRecord(flowType, false,
+		func(lr *accesslog.LogRecord, _ accesslog.EndpointInfoRegistry) {
+			lr.TransportProtocol = accesslog.TransportProtocol(protoID)
+		},
+		accesslog.LogTags.Verdict(verdict, reason),
+		accesslog.LogTags.Addressing(logContext, addrInfo),
+		accesslog.LogTags.DNS(&accesslog.LogRecordDNS{
+			Query:             fqdn,
+			IPs:               ips,
+			TTL:               TTL,
+			CNAMEs:            metrics.GetDnsResponseData().GetCnames(),
+			ObservationSource: accesslog.DNSDataSource(metrics.GetProcessingStats().GetDataSource()),
+			RCode:             int(responseCode),
+			QTypes:            ConvertToUint16(metrics.GetDnsResponseData().GetQtypes()),
+			AnswerTypes:       ConvertToUint16(metrics.GetDnsResponseData().GetAnswerTimes()),
+		}),
+	)
+	s.proxyAccessLogger.Log(record)
+}
+
+// Get the flow type of the DNS message
+func GetFlowType(ep *endpoint.Endpoint, epIpPort string, serverAddr string, serverID identity.NumericIdentity, response bool) (accesslog.FlowType, accesslog.AddressingInfo) {
+	// We determine the direction based on the DNS packet. The observation
+	// point is always Egress, however.
+	var flowType accesslog.FlowType
+	var addrInfo accesslog.AddressingInfo
+
+	if response {
+		flowType = accesslog.TypeResponse
+		addrInfo.DstIPPort = epIpPort
+		addrInfo.DstEPID = ep.GetID()
+		// ignore error; log fields are best effort. Only returns error if endpoint
+		// is going away.
+		addrInfo.DstSecIdentity, _ = ep.GetSecurityIdentity()
+		addrInfo.SrcIPPort = serverAddr
+		addrInfo.SrcIdentity = serverID
+	} else {
+		flowType = accesslog.TypeRequest
+		addrInfo.SrcIPPort = epIpPort
+		addrInfo.SrcEPID = ep.GetID()
+		// ignore error; same reason as above.
+		addrInfo.SrcSecIdentity, _ = ep.GetSecurityIdentity()
+		addrInfo.DstIPPort = serverAddr
+		addrInfo.DstIdentity = serverID
+	}
+	return flowType, addrInfo
 }

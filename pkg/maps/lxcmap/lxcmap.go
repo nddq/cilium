@@ -252,3 +252,35 @@ func DumpToMap() (map[string]EndpointInfo, error) {
 
 	return m, nil
 }
+
+// Why we didn't use the LXCMap() as it uses once function to create the lxc map
+// and in some scenaios if sdp is up before cilium agent, it might end up creating
+// the lxc map.
+type lxc struct {
+	lxcMap *bpf.Map
+}
+
+type lxcReader interface {
+	Get(key EndpointKey) (EndpointInfo, error)
+}
+
+func LoadMap(log *slog.Logger) (lxcReader, error) {
+	var key EndpointKey
+	var value EndpointInfo
+	m, err := bpf.OpenMap(bpf.MapPath(log, MapName), &key, &value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load bpf %s map: %w", MapName, err)
+	}
+	return &lxc{lxcMap: m}, nil
+}
+
+func (m *lxc) Get(key EndpointKey) (EndpointInfo, error) {
+	v, err := m.lxcMap.Lookup(&key)
+	if err != nil {
+		return EndpointInfo{}, err
+	}
+	if v == nil {
+		return EndpointInfo{}, fmt.Errorf("key not found : %v", key)
+	}
+	return *v.(*EndpointInfo), nil
+}

@@ -5,6 +5,7 @@ package ipcache
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strings"
@@ -299,4 +300,32 @@ func IPCacheMapV1() *Map {
 		}
 	})
 	return oldIPcache
+}
+
+type ipcMap struct {
+	*bpf.Map
+}
+type ipCacheReader interface {
+	Get(key Key) (RemoteEndpointInfo, error)
+}
+
+func LoadMap(log *slog.Logger) (ipCacheReader, error) {
+	var key Key
+	var value RemoteEndpointInfo
+	m, err := bpf.OpenMap(bpf.MapPath(log, Name), &key, &value)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load %s bpf map: %w", Name, err)
+	}
+	return &ipcMap{Map: m}, nil
+}
+
+func (m *ipcMap) Get(key Key) (RemoteEndpointInfo, error) {
+	v, err := m.Map.Lookup(&key)
+	if err != nil {
+		return RemoteEndpointInfo{}, err
+	}
+	if v == nil {
+		return RemoteEndpointInfo{}, fmt.Errorf("key not found : %v", key)
+	}
+	return *v.(*RemoteEndpointInfo), nil
 }

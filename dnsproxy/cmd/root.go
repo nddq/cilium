@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/cilium/cilium/dnsproxy/metrics"
 	"github.com/cilium/cilium/pkg/fqdn/service"
 	"github.com/cilium/cilium/pkg/hive"
 	"github.com/cilium/cilium/pkg/logging"
@@ -75,7 +76,7 @@ type standaloneDNSProxyParams struct {
 
 func registerDNSProxyHooks(params standaloneDNSProxyParams) {
 	params.Logger.Info("Populating configuration from CLI")
-	sdp := NewStandaloneDNSProxy()
+	sdp := NewStandaloneDNSProxy(params.Logger)
 
 	args := &StandaloneDNSProxyArgs{
 		address:                "",
@@ -88,6 +89,7 @@ func registerDNSProxyHooks(params standaloneDNSProxyParams) {
 		concurrencyGracePeriod: option.Config.DNSProxyConcurrencyProcessingGracePeriod,
 		logger:                 params.Logger,
 		toFqdnServerPort:       uint16(params.FQDNConfig.StandaloneDNSProxyServerPort),
+		enableL7Proxy:          option.Config.EnableL7Proxy,
 	}
 
 	// Todo: add the log with individual fields
@@ -100,9 +102,13 @@ func registerDNSProxyHooks(params standaloneDNSProxyParams) {
 
 	params.Lifecycle.Append(cell.Hook{
 		OnStart: func(cell.HookContext) error {
+			metrics.Register()
+
 			return sdp.StartStandaloneDNSProxy(args)
 		},
 		OnStop: func(cell.HookContext) error {
+			metrics.Unregister()
+
 			return sdp.StopStandaloneDNSProxy()
 		},
 	})

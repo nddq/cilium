@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/fqdn/messagehandler"
 	"github.com/cilium/cilium/pkg/ipcache"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/proxy/accesslog"
 	"github.com/cilium/cilium/pkg/time"
 )
 
@@ -43,6 +44,7 @@ type serverParams struct {
 	Config            FQDNConfig
 	DaemonConfig      *option.DaemonConfig
 	DefaultListener   listenConfig
+	ProxyAccessLogger accesslog.ProxyAccessLogger
 }
 
 func newServer(params serverParams) *FQDNDataServer {
@@ -61,7 +63,7 @@ func newServer(params serverParams) *FQDNDataServer {
 		return nil
 	}
 
-	srv := NewServer(params.EndpointManager, params.DNSRequestHandler, params.Config.StandaloneDNSProxyServerPort, params.Logger, params.DefaultListener)
+	srv := NewServer(params.EndpointManager, params.DNSRequestHandler, params.Config.StandaloneDNSProxyServerPort, params.Logger, params.DefaultListener, params.ProxyAccessLogger)
 	params.IPCache.AddListener(srv)
 
 	params.JobGroup.Add(job.OneShot("sdp-grpc-server", srv.ListenAndServe,

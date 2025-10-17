@@ -246,7 +246,9 @@ func (h *dnsMessageHandler) NotifyOnDNSMsg(
 }
 
 func (h *dnsMessageHandler) UpdateOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, qname string, responseIPs []netip.Addr, TTL int, stat *dnsproxy.ProxyRequestContext) {
-	stat.PolicyGenerationTime.Start()
+	if stat != nil {
+		stat.PolicyGenerationTime.Start()
+	}
 
 	// Create a critical section especially for when multiple DNS requests
 	// are in-flight for the same name (i.e. cilium.io).
@@ -322,9 +324,11 @@ func (h *dnsMessageHandler) UpdateOnDNSMsg(lookupTime time.Time, ep *endpoint.En
 		TTL: int(TTL),
 	})
 
-	stat.PolicyGenerationTime.End(true)
-	stat.DataplaneTime.Start()
-	defer stat.DataplaneTime.End(true)
+	if stat != nil {
+		stat.PolicyGenerationTime.End(true)
+		stat.DataplaneTime.Start()
+		defer stat.DataplaneTime.End(true)
+	}
 
 	if err := <-dpUpdates; err != nil {
 		h.logger.Warn("Timed out waiting for datapath updates of FQDN IP information; returning response. Consider increasing --tofqdns-proxy-response-max-delay if this keeps happening.")

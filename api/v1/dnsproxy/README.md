@@ -7,7 +7,10 @@
     - [AzureFQDNMapping](#dnsproxy-AzureFQDNMapping)
     - [DNSPolicyRule](#dnsproxy-DNSPolicyRule)
     - [DNSPolicyRules](#dnsproxy-DNSPolicyRules)
+    - [DNSResponseData](#dnsproxy-DNSResponseData)
     - [FQDNSelector](#dnsproxy-FQDNSelector)
+    - [MetricsData](#dnsproxy-MetricsData)
+    - [ProcessingStats](#dnsproxy-ProcessingStats)
     - [Request](#dnsproxy-Request)
     - [Result](#dnsproxy-Result)
   
@@ -37,6 +40,8 @@
 | TTL | [uint32](#uint32) |  |  |
 | client_ip | [bytes](#bytes) |  |  |
 | response_code | [uint32](#uint32) |  |  |
+| metrics | [MetricsData](#dnsproxy-MetricsData) |  |  |
+| request_id | [uint32](#uint32) |  |  |
 
 
 
@@ -72,6 +77,25 @@
 | endpoint_id | [uint64](#uint64) |  |  |
 | port | [uint32](#uint32) |  |  |
 | rules | [DNSPolicyRule](#dnsproxy-DNSPolicyRule) | repeated |  |
+| protocol | [uint32](#uint32) |  |  |
+
+
+
+
+
+
+<a name="dnsproxy-DNSResponseData"></a>
+
+### DNSResponseData
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| response | [bool](#bool) |  |  |
+| cnames | [string](#string) | repeated |  |
+| qtypes | [uint32](#uint32) | repeated |  |
+| answer_times | [uint32](#uint32) | repeated |  |
 
 
 
@@ -88,6 +112,43 @@
 | ----- | ---- | ----- | ----------- |
 | match_name | [string](#string) |  |  |
 | match_pattern | [string](#string) |  |  |
+
+
+
+
+
+
+<a name="dnsproxy-MetricsData"></a>
+
+### MetricsData
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| processing_stats | [ProcessingStats](#dnsproxy-ProcessingStats) |  |  |
+| dns_response_data | [DNSResponseData](#dnsproxy-DNSResponseData) |  |  |
+| endpoint_ip_port | [string](#string) |  |  |
+| server_addr | [string](#string) |  |  |
+| server_identity | [uint32](#uint32) |  |  |
+| protocol | [string](#string) |  |  |
+| allowed | [bool](#bool) |  |  |
+
+
+
+
+
+
+<a name="dnsproxy-ProcessingStats"></a>
+
+### ProcessingStats
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| err | [string](#string) |  |  |
+| data_source | [string](#string) |  |  |
 
 
 
@@ -118,6 +179,7 @@
 | Field | Type | Label | Description |
 | ----- | ---- | ----- | ----------- |
 | success | [bool](#bool) |  |  |
+| request_id | [uint32](#uint32) |  |  |
 
 
 
@@ -138,7 +200,7 @@
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
 | SubscribeToDNSRules | [Request](#dnsproxy-Request) | [DNSPolicyRules](#dnsproxy-DNSPolicyRules) stream |  |
-| UpdateMappings | [AzureFQDNMapping](#dnsproxy-AzureFQDNMapping) stream | [Result](#dnsproxy-Result) |  |
+| UpdateMappings | [AzureFQDNMapping](#dnsproxy-AzureFQDNMapping) stream | [Result](#dnsproxy-Result) stream |  |
 
  
 

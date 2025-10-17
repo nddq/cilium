@@ -6,7 +6,7 @@ option go_package = "github.com/cilium/cilium/api/v1/dnsproxy";
 
 service AzureFQDNData {
     rpc SubscribeToDNSRules(Request) returns (stream DNSPolicyRules) {}
-    rpc UpdateMappings(stream AzureFQDNMapping) returns (Result) {}
+    rpc UpdateMappings(stream AzureFQDNMapping) returns (stream Result) {}
 }
   
 message Request {
@@ -19,10 +19,35 @@ message AzureFQDNMapping {
   uint32 TTL = 3;
   bytes client_ip = 4;
   uint32 response_code = 5;
+  MetricsData metrics = 6;
+  uint32 request_id = 7;
+}
+
+message MetricsData {
+  ProcessingStats processing_stats = 1;
+  DNSResponseData dns_response_data = 2;
+  string endpoint_ip_port = 3;
+  string server_addr = 4;
+  uint32 server_identity = 5;
+  string protocol = 6;
+  bool allowed = 7;
+}
+
+message ProcessingStats {
+  string err = 1;
+  string data_source = 2;
+}
+
+message DNSResponseData {
+  bool response = 1;
+  repeated string cnames = 2;
+  repeated uint32 qtypes = 3;
+  repeated uint32 answer_times = 4;
 }
 
 message Result {
   bool success = 1;
+  uint32 request_id = 2;
 }
 
 message FQDNSelector {
@@ -41,4 +66,5 @@ message DNSPolicyRules {
   uint64 endpoint_id = 1;
   uint32 port = 2;
   repeated DNSPolicyRule rules = 3;
+  uint32 protocol = 4;
 }
