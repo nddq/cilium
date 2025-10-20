@@ -3,16 +3,19 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
+	"math"
+	"math/rand/v2"
 	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 
 	pb "github.com/cilium/cilium/api/v1/dnsproxy"
 	"github.com/cilium/cilium/dnsproxy/pkg/maps"
 	"github.com/cilium/cilium/pkg/labels"
-	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/u8proto"
 	"github.com/cilium/dns"
@@ -58,17 +61,30 @@ type StandaloneDNSProxyArgs struct {
 }
 
 type StandaloneDNSProxy struct {
-	DNSProxy   *dnsproxy.DNSProxy
-	Client     pb.AzureFQDNDataClient
-	connection *grpc.ClientConn
+	DNSProxy          *dnsproxy.DNSProxy
+	Client            pb.AzureFQDNDataClient
+	connection        *grpc.ClientConn
+	connectionWatcher *ConnectionWatcher
 
-	ciliumAgentConnection   *trigger.Trigger
-	dnsRulesStream          pb.AzureFQDNData_SubscribeToDNSRulesClient
-	fqdnMappingStream       pb.AzureFQDNData_UpdateMappingsClient
-	fqdnMappingResponseChan lock.Map[uint32, chan *pb.Result]
+	ciliumAgentConnection    *trigger.Trigger
+	dnsRulesStream           pb.AzureFQDNData_SubscribeToDNSRulesClient
+	fqdnMappingStreamWrapper *FqdnMappingStreamWrapper
 
-	cancelSubscribeToDNSRules context.CancelFunc
-	log                       *slog.Logger
+	cancelSubscribeToDNSRules        context.CancelFunc
+	ciliumAgentConnectionContext     context.Context
+	cancelCiliumAgentConnectionUsers context.CancelFunc
+	log                              *slog.Logger
+}
+
+// uniqueID converts the request ID and domain name into a unique uint32 value using FNV-1a.
+func uniqueID(reqID int32, domain string) uint32 {
+	h := fnv.New32a()
+	// Generate a random number to combine with the request ID and domain.
+	randNum := rand.Int32N(math.MaxInt32)
+	// Combine the request ID, domain, and random number using a colon as delimiter.
+	idStr := strconv.Itoa(int(reqID)) + ":" + domain + ":" + strconv.Itoa(int(randNum))
+	h.Write([]byte(idStr))
+	return h.Sum32()
 }
 
 func NewStandaloneDNSProxy(logger *slog.Logger) *StandaloneDNSProxy {
@@ -104,6 +120,7 @@ func (sdp *StandaloneDNSProxy) StartCiliumAgentConnection() error {
 		}
 	}()
 
+	sdp.log.Info("Starting cilium agent connection")
 	if sdp.connection == nil {
 		sdp.log.Error("Connection is nil", logfields.Error, err)
 		return fmt.Errorf("connection is nil")
@@ -123,15 +140,35 @@ func (sdp *StandaloneDNSProxy) StartCiliumAgentConnection() error {
 		}
 	}
 
-	// Create the FQDN mapping stream
-	if sdp.fqdnMappingStream == nil {
-		st, err := sdp.Client.UpdateMappings(context.Background())
+	sdp.log.Info("DNS rules stream created")
+
+	if sdp.fqdnMappingStreamWrapper == nil {
+		sdp.fqdnMappingStreamWrapper, err = NewFqdnMappingStreamWrapper(
+			sdp.Client,
+			sdp.connectionWatcher.connectionLock,
+			sdp.ciliumAgentConnection.TriggerWithReason,
+			sdp.ciliumAgentConnectionContext,
+			sdp.log,
+		)
 		if err != nil {
 			sdp.log.Error("Failed to create FQDN mapping stream", logfields.Error, err)
 			return err
 		}
-		sdp.fqdnMappingStream = st
+
+		sdp.log.Info("FQDN mapping stream wrapper created")
 	}
+
+	if sdp.fqdnMappingStreamWrapper.fqdnMappingStream == nil {
+		// This is a stream reset scenario. During init, the stream is created as part of the wrapper
+		err = sdp.fqdnMappingStreamWrapper.CreateFqdnMappingStreamIfNil(sdp.Client, sdp.ciliumAgentConnectionContext)
+		if err != nil {
+			return err
+		}
+
+		sdp.fqdnMappingStreamWrapper.streamResetComplete <- struct{}{}
+	}
+
+	sdp.log.Info("Cilium agent connection created successfully")
 
 	return nil
 }
@@ -150,6 +187,22 @@ func (sdp *StandaloneDNSProxy) ConnectToCiliumAgent() error {
 		return nil
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	sdp.cancelCiliumAgentConnectionUsers = cancel
+	sdp.ciliumAgentConnectionContext = ctx
+
+	if sdp.connectionWatcher == nil {
+		sdp.connectionWatcher = NewConnectionWatcher(
+			sdp.cancelCiliumAgentConnectionUsers,
+			sdp.closeConnection,
+			sdp.log,
+		)
+	} else {
+		sdp.connectionWatcher.UpdateCancelUsersFunction(sdp.cancelCiliumAgentConnectionUsers)
+	}
+
+	// Create the connection to the cilium agent
+
 	var opts []grpc.DialOption
 	opts = append(opts, grpc.WithInsecure())
 	opts = append(opts, grpc.WithBlock())
@@ -158,7 +211,7 @@ func (sdp *StandaloneDNSProxy) ConnectToCiliumAgent() error {
 	address := fmt.Sprintf("localhost:%d", serverPort)
 
 	sdp.log.Info("Connecting to server", logfields.Address, address)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5) // 5 seconds timeout
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second*5) // 5 seconds timeout
 	defer cancel()
 
 	conn, err := grpc.DialContext(ctx, address, opts...)
@@ -234,10 +287,17 @@ func (sdp *StandaloneDNSProxy) createCiliumAgentConnectionTrigger() error {
 			}()
 			sdp.log.Info("Triggering cilium agent connection", logfields.Reasons, reasons)
 			// 1. Try creating the connection to the cilium agent
-			err := sdp.ConnectToCiliumAgent()
-			if err != nil {
-				sdp.log.Error("Failed to connect to cilium agent", logfields.Error, err)
-				return
+			if sdp.connection == nil {
+				err := sdp.ConnectToCiliumAgent()
+				if err != nil {
+					sdp.log.Error("Failed to connect to cilium agent", logfields.Error, err)
+					return
+				}
+
+				// Should we recreate the other stream? For example, if FQDN mapping stream error
+				// has caused the connection to be closed, do we need to recreate the dnsRulesStream?
+				// As part of the connection close, we cancel the context of both streams, so the "other"
+				// stream will error, and will recreate itself.
 			}
 
 			// 2. Try starting the cilium agent connection
@@ -252,9 +312,6 @@ func (sdp *StandaloneDNSProxy) createCiliumAgentConnectionTrigger() error {
 
 			// 3. Try to subscribe to the DNS rules
 			go sdp.subscribeToDNSRules(ctx)
-
-			// 4. Receive the responses from the cilium agent
-			go sdp.receiveResponses()
 		},
 	})
 	if err != nil {
@@ -310,6 +367,10 @@ func (s *StandaloneDNSProxy) NotifyOnDNSMsg(lookupTime time.Time, ep *endpoint.E
 		metrics.DNSRequestNotResolved.WithLabelValues(stat.Err.Error()).Inc()
 	}
 
+	if s.fqdnMappingStreamWrapper == nil {
+		return fmt.Errorf("FQDN mapping stream wrapper is nil, not sending the mapping to Cilium agent")
+	}
+
 	qname, responseIPs, TTL, CNAMEs, rcode, answerTypes, qtypes, err := dnsproxy.ExtractMsgDetails(msg)
 	if err != nil {
 		s.log.Error("cannot extract DNS message details", logfields.Error, err)
@@ -330,6 +391,10 @@ func (s *StandaloneDNSProxy) NotifyOnDNSMsg(lookupTime time.Time, ep *endpoint.E
 	}
 
 	metrics := formatMetricsData(stat, epIPPort, serverID, serverAddr, msg.Response, CNAMEs, qtypes, answerTypes, allowed, protocol)
+
+	messageID := uniqueID(int32(msg.Id), qname)
+	s.log.Debug("Message id for DNS message, qname, messageID", logfields.DNSRequestID, msg.Id, logfields.Name, qname, logfields.ID, messageID)
+
 	message := pb.AzureFQDNMapping{
 		FQDN:         qname,
 		IPS:          ips,
@@ -337,14 +402,14 @@ func (s *StandaloneDNSProxy) NotifyOnDNSMsg(lookupTime time.Time, ep *endpoint.E
 		ClientIp:     []byte(clientIp),
 		ResponseCode: uint32(rcode),
 		Metrics:      &metrics,
-		RequestId:    uint32(msg.Id),
+		RequestId:    messageID,
 	}
 
-	err = s.SendFqdnMapping(&message)
+	err = s.fqdnMappingStreamWrapper.AddFqdnMappingToSendChannelAndGetResponse(&message)
 	if err != nil {
-		s.log.Error("Failed to send FQDN Mapping message", logfields.Error, err)
 		return err
 	}
+
 	return nil
 }
 
@@ -380,113 +445,6 @@ func convertToUint32Slice(input []uint16) []uint32 {
 		output[i] = uint32(v)
 	}
 	return output
-}
-
-func (sdp *StandaloneDNSProxy) SendFqdnMapping(message *pb.AzureFQDNMapping) error {
-	var err error
-	defer func() {
-		if err != nil {
-			sdp.closeFqdnMappingStream()
-			sdp.log.Error("Failed to send FQDN mapping")
-			if err == io.EOF || status.Code(err) == codes.Unavailable {
-				sdp.closeConnection()
-				sdp.ciliumAgentConnection.TriggerWithReason("Received EOF from FQDN mapping stream")
-				sdp.log.Error("Received EOF from FQDN mapping stream")
-			} else {
-				sdp.ciliumAgentConnection.TriggerWithReason("Failed to send FQDN mapping")
-				sdp.log.Error("Failed to send FQDN mapping", logfields.Error, err)
-			}
-			metrics.FQDNMappingSync.WithLabelValues(err.Error()).Inc()
-		}
-	}()
-
-	if sdp.fqdnMappingStream == nil {
-		sdp.log.Error("FQDN mapping stream is nil")
-		return fmt.Errorf("FQDN mapping stream is nil")
-	}
-
-	// store the response channel with the key as dns message id
-	responseChan := make(chan *pb.Result, 1)
-	sdp.fqdnMappingResponseChan.Store(message.GetRequestId(), responseChan)
-
-	err = sdp.fqdnMappingStream.Send(message)
-	if err != nil {
-		sdp.log.Error("Failed to send FQDN Mapping message", logfields.Error, err)
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// Wait for the response from the cilium agent
-	// 1. If the response is received, log the response
-	// 2. If the context is cancelled, log the timeout
-	// 3. If there is an error, log the error
-	select {
-	case <-ctx.Done():
-		sdp.log.Warn("Timeout waiting for result from FQDN mapping stream for request id", logfields.ID, message.GetRequestId())
-	case result := <-responseChan:
-		sdp.log.Debug("Received result from FQDN mapping stream", logfields.Result, result)
-	}
-
-	return nil
-}
-
-func (sdp *StandaloneDNSProxy) receiveResponses() error {
-	var err error
-	defer func() {
-		if err != nil {
-			sdp.closeFqdnMappingStream()
-			if err == io.EOF || status.Code(err) == codes.Unavailable {
-				sdp.closeConnection()
-				sdp.ciliumAgentConnection.TriggerWithReason("Received EOF from FQDN mapping stream")
-				sdp.log.Error("Received EOF from FQDN mapping stream")
-			} else {
-				sdp.ciliumAgentConnection.TriggerWithReason("Failed to receive FQDN mapping")
-				sdp.log.Error("Failed to receive FQDN mapping", logfields.Error, err)
-			}
-		}
-	}()
-
-	for {
-		if sdp.fqdnMappingStream == nil {
-			sdp.log.Error("FQDN mapping stream is nil")
-			return fmt.Errorf("FQDN mapping stream is nil")
-		}
-
-		response, err := sdp.fqdnMappingStream.Recv()
-		if err != nil {
-			if err == io.EOF || status.Code(err) == codes.Unavailable {
-				sdp.log.Error("fqdn mapping stream closed", logfields.Error, err)
-				return fmt.Errorf("fqdn mapping stream closed")
-			}
-			sdp.log.Error("Failed to receive response", logfields.Error, err)
-			return fmt.Errorf("failed to receive response")
-		}
-
-		// Extract the dns message id from the response
-		dnsMsgID := response.GetRequestId()
-
-		// Get the response channel from the map
-		responseChan, ok := sdp.fqdnMappingResponseChan.Load(dnsMsgID)
-		if !ok {
-			sdp.log.Error("Response channel not found for dns message id", logfields.ID, dnsMsgID)
-		} else {
-			// Send the response to the response channel or else timeout after 2 seconds
-			ticker := time.NewTicker(2 * time.Second)
-			select {
-			case responseChan <- response:
-				// Successfully sent the response
-			case <-ticker.C:
-				sdp.log.Warn("Timeout sending response for dns message id", logfields.ID, dnsMsgID)
-			}
-			ticker.Stop()
-		}
-		// Delete the response channel from the map
-		sdp.fqdnMappingResponseChan.Delete(dnsMsgID)
-		sdp.log.Debug("Deleted response channel for dns message id", logfields.ID, dnsMsgID)
-
-	}
 }
 
 // subscribeToDNSRules subscribes to the DNS rules
@@ -538,16 +496,6 @@ func (sdp *StandaloneDNSProxy) subscribeToDNSRules(ctx context.Context) error {
 			sdp.log.Debug("Received DNS rule", logfields.Rules, newRules)
 			sdp.UpdateDNSRules(newRules)
 		}
-	}
-}
-
-func (sdp *StandaloneDNSProxy) closeFqdnMappingStream() {
-	if sdp.fqdnMappingStream != nil {
-		err := sdp.fqdnMappingStream.CloseSend()
-		if err != nil {
-			sdp.log.Error("Failed to close Fqdn mapping stream", logfields.Error, err)
-		}
-		sdp.fqdnMappingStream = nil
 	}
 }
 

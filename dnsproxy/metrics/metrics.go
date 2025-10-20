@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/metrics"
+	"github.com/cilium/cilium/pkg/metrics/metric"
 )
 
 var (
@@ -115,6 +116,14 @@ var (
 
 	// RetrieveDNSRules used to track the total number of errors occurred during retrieving the DNS rules.
 	RetrieveDNSRules *prometheus.CounterVec
+
+	// CiliumAgentProcessingTimeout used to track the total number of errors occurred during processing cilium-agent responses.
+	// This can happen for DNS request as well as DNS response.
+	CiliumAgentProcessingTimeout *prometheus.CounterVec
+
+	// CiliumAgentProcessingDelayed used to track the total number of responses we received from cilium-agent after a timeout.
+	// This can happen for DNS request as well as DNS response.
+	CiliumAgentProcessingDelayed *prometheus.CounterVec
 )
 
 func registerMetrics() []prometheus.Collector {
@@ -123,6 +132,15 @@ func registerMetrics() []prometheus.Collector {
 
 	// Custom metrics
 	var collectors []prometheus.Collector
+
+	metrics.ProxyDNSRequestsTotal = metric.NewCounter(metric.CounterOpts{
+		ConfigName: Namespace + "_dns_requests_total",
+		Namespace:  Namespace,
+		Name:       "dns_requests_total",
+		Help:       "Number of DNS requests served by the DNS proxy",
+	})
+
+	collectors = append(collectors, metrics.ProxyDNSRequestsTotal)
 
 	CiliumAgentConnection = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Namespace: Namespace,
@@ -152,6 +170,28 @@ func registerMetrics() []prometheus.Collector {
 	}, []string{metrics.LabelError})
 	collectors = append(collectors, DNSRequestNotResolved)
 
+	CiliumAgentProcessingTimeout = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Name:      "cilium_agent_processing_timeout",
+		Help:      "Number of cilium agent processing timeout responses",
+	}, []string{metrics.LabelType})
+	collectors = append(collectors, CiliumAgentProcessingTimeout)
+
+	CiliumAgentProcessingDelayed = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Name:      "cilium_agent_processing_delayed_responses",
+		Help:      "Number of cilium agent processing delayed responses",
+	}, []string{})
+	collectors = append(collectors, CiliumAgentProcessingDelayed)
+
+	metrics.ProxyDNSResponse = metric.NewCounterVec(metric.CounterOpts{
+		ConfigName: Namespace + "_dns_response_total",
+		Namespace:  Namespace,
+		Name:       "dns_response_total",
+		Help:       "Number of DNS responses by type and reason",
+	}, []string{metrics.LabelType, metrics.LabelDropReason})
+
+	collectors = append(collectors, metrics.ProxyDNSResponse)
 	Registry.MustRegister(collectors...)
 
 	return collectors

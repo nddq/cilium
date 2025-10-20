@@ -364,6 +364,12 @@ var (
 	// updating the datapath due to an FQDN IP update
 	ProxyDatapathUpdateTimeout = NoOpCounter
 
+	// DNS Response is the number of DNS responses labeled by type and reason
+	ProxyDNSResponse = NoOpCounterVec
+
+	// Total number of DNS requests served by the DNS proxy
+	ProxyDNSRequestsTotal = NoOpCounter
+
 	// L3-L4 statistics
 
 	// Datapath statistics
@@ -642,6 +648,8 @@ type LegacyMetrics struct {
 	ProxyPolicyL7Total               metric.Vec[metric.Counter]
 	ProxyUpstreamTime                metric.Vec[metric.Observer]
 	ProxyDatapathUpdateTimeout       metric.Counter
+	ProxyDNSResponse                 metric.Vec[metric.Counter]
+	ProxyDNSRequestsTotal            metric.Counter
 	ConntrackGCRuns                  metric.Vec[metric.Counter]
 	ConntrackGCKeyFallbacks          metric.Vec[metric.Counter]
 	ConntrackGCSize                  metric.Vec[metric.Gauge]
@@ -871,6 +879,20 @@ func NewLegacyMetrics() *LegacyMetrics {
 			Namespace: Namespace,
 			Name:      "proxy_datapath_update_timeout_total",
 			Help:      "Number of total datapath update timeouts due to FQDN IP updates",
+		}),
+
+		ProxyDNSResponse: metric.NewCounterVec(metric.CounterOpts{
+			ConfigName: Namespace + "_dns_response_total",
+			Namespace:  Namespace,
+			Name:       "dns_response_total",
+			Help:       "Number of DNS responses by type and reason",
+		}, []string{LabelType, LabelDropReason}),
+
+		ProxyDNSRequestsTotal: metric.NewCounter(metric.CounterOpts{
+			ConfigName: Namespace + "_dns_requests_total",
+			Namespace:  Namespace,
+			Name:       "dns_requests_total",
+			Help:       "Number of DNS requests served by the DNS proxy",
 		}),
 
 		ConntrackGCRuns: metric.NewCounterVec(metric.CounterOpts{
@@ -1306,6 +1328,8 @@ func NewLegacyMetrics() *LegacyMetrics {
 	ProxyPolicyL7Total = lm.ProxyPolicyL7Total
 	ProxyUpstreamTime = lm.ProxyUpstreamTime
 	ProxyDatapathUpdateTimeout = lm.ProxyDatapathUpdateTimeout
+	ProxyDNSResponse = lm.ProxyDNSResponse
+	ProxyDNSRequestsTotal = lm.ProxyDNSRequestsTotal
 	ConntrackGCRuns = lm.ConntrackGCRuns
 	ConntrackGCKeyFallbacks = lm.ConntrackGCKeyFallbacks
 	ConntrackGCSize = lm.ConntrackGCSize

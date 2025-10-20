@@ -31,6 +31,7 @@ import (
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/metrics"
 	"github.com/cilium/cilium/pkg/option"
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/proxy/accesslog"
@@ -52,6 +53,18 @@ const (
 	// ProxyBindRetryInterval is how long to wait between attempts to bind to the
 	// proxy address:port
 	ProxyBindRetryInterval = ProxyBindTimeout / 5
+)
+
+// DNS request refused type
+const (
+	ConcurrencyLimit   = "concurrency-limit"
+	InvalidDNSIP       = "invalid-dns-ip"
+	InvalidEndpoint    = "invalid-endpoint"
+	InvalidDNSServer   = "invalid-dns-server"
+	EndpointError      = "endpoint-error"
+	PolicyDenied       = "policy-denied"
+	InvalidDNSProtocol = "invalid-dns-protocol"
+	ForwardError       = "forward-error"
 )
 
 // DNSProxy is a L7 proxy for DNS traffic. It keeps a list of allowed DNS
@@ -930,6 +943,7 @@ func setSoMarks(fd int, ipFamily ipfamily.IPFamily, secId identity.NumericIdenti
 func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 	stat := ProxyRequestContext{DataSource: accesslog.DNSSourceProxy}
 	stat.TotalTime.Start()
+	metrics.ProxyDNSRequestsTotal.Inc()
 	requestID := request.Id // save the original request ID
 	qname := string(request.Question[0].Name)
 	protocol := w.LocalAddr().Network()
@@ -939,6 +953,7 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		logfields.IPAddr, epIPPort,
 		logfields.DNSRequestID, requestID,
 	)
+	refusedRes := strconv.Itoa(p.rejectReply)
 
 	if p.ConcurrencyLimit != nil {
 		// TODO: Consider plumbing the daemon context here.
@@ -956,6 +971,7 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 			stat.Err = err
 			p.NotifyOnDNSMsg(time.Now(), nil, epIPPort, 0, netip.AddrPort{}, request, protocol, false, &stat)
 			p.sendErrorResponse(scopedLog, w, request, false)
+			metrics.ProxyDNSResponse.WithLabelValues(refusedRes, ConcurrencyLimit).Inc()
 			return
 		}
 		stat.SemaphoreAcquireTime.End(true)
@@ -972,6 +988,8 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		stat.ProcessingTime.End(false)
 		p.NotifyOnDNSMsg(time.Now(), nil, epIPPort, 0, netip.AddrPort{}, request, protocol, false, &stat)
 		p.sendErrorResponse(scopedLog, w, request, false)
+		metrics.ProxyDNSResponse.WithLabelValues(refusedRes, InvalidDNSIP).Inc()
+
 		return
 	}
 	epAddr := addrPort.Addr()
@@ -982,6 +1000,8 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		stat.ProcessingTime.End(false)
 		p.NotifyOnDNSMsg(time.Now(), nil, epIPPort, 0, netip.AddrPort{}, request, protocol, false, &stat)
 		p.sendErrorResponse(scopedLog, w, request, false)
+		metrics.ProxyDNSResponse.WithLabelValues(refusedRes, InvalidEndpoint).Inc()
+
 		return
 	}
 
@@ -997,6 +1017,7 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		stat.ProcessingTime.End(false)
 		p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, 0, targetServer, request, protocol, false, &stat)
 		p.sendErrorResponse(scopedLog, w, request, false)
+		metrics.ProxyDNSResponse.WithLabelValues(refusedRes, InvalidDNSServer).Inc()
 		return
 	}
 	targetServerPortProto := restore.MakeV2PortProto(targetServer.Port(), proto)
@@ -1032,6 +1053,8 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		stat.ProcessingTime.End(false)
 		p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServer, request, protocol, false, &stat)
 		p.sendErrorResponse(scopedLog, w, request, false)
+		metrics.ProxyDNSResponse.WithLabelValues(refusedRes, EndpointError).Inc()
+
 		return
 
 	case !allowed:
@@ -1041,6 +1064,8 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		// stat.Err field to be set in order to propagate the correct
 		// information for metrics.
 		stat.Err = p.sendErrorResponse(scopedLog, w, request, true)
+		metrics.ProxyDNSResponse.WithLabelValues(refusedRes, PolicyDenied).Inc()
+
 		stat.ProcessingTime.End(true)
 		p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServer, request, protocol, false, &stat)
 		return
@@ -1060,6 +1085,8 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		stat.ProcessingTime.End(false)
 		p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServer, request, protocol, false, &stat)
 		p.sendErrorResponse(scopedLog, w, request, false)
+		metrics.ProxyDNSResponse.WithLabelValues(refusedRes, InvalidDNSProtocol).Inc()
+
 		return
 	}
 	stat.ProcessingTime.End(true)
@@ -1119,6 +1146,8 @@ func (p *DNSProxy) ServeDNS(w dns.ResponseWriter, request *dns.Msg) {
 		stat.Err = fmt.Errorf("cannot forward proxied DNS lookup: %w", err)
 		p.NotifyOnDNSMsg(time.Now(), ep, epIPPort, targetServerID, targetServer, request, protocol, false, &stat)
 		p.sendErrorResponse(scopedLog, w, request, false)
+		metrics.ProxyDNSResponse.WithLabelValues(refusedRes, ForwardError).Inc()
+
 		return
 	}
 
