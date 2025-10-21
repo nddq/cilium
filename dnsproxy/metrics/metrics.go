@@ -124,6 +124,9 @@ var (
 	// CiliumAgentProcessingDelayed used to track the total number of responses we received from cilium-agent after a timeout.
 	// This can happen for DNS request as well as DNS response.
 	CiliumAgentProcessingDelayed *prometheus.CounterVec
+
+	// Proxy BootstrapError used to track the total number of errors occurred during proxy bootstrap.
+	ProxyBootstrapError *prometheus.CounterVec
 )
 
 func registerMetrics() []prometheus.Collector {
@@ -167,7 +170,7 @@ func registerMetrics() []prometheus.Collector {
 		Namespace: Namespace,
 		Name:      "dns_request_not_resolved_errors",
 		Help:      "Number of dns request not resolved errors",
-	}, []string{metrics.LabelError})
+	}, []string{metrics.LabelError, metrics.LabelType})
 	collectors = append(collectors, DNSRequestNotResolved)
 
 	CiliumAgentProcessingTimeout = prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -192,6 +195,14 @@ func registerMetrics() []prometheus.Collector {
 	}, []string{metrics.LabelType, metrics.LabelDropReason})
 
 	collectors = append(collectors, metrics.ProxyDNSResponse)
+
+	ProxyBootstrapError = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Namespace: Namespace,
+		Name:      "proxy_bootstrap_errors",
+		Help:      "Number of errors occurred during proxy bootstrap",
+	}, []string{metrics.LabelError})
+	collectors = append(collectors, ProxyBootstrapError)
+
 	Registry.MustRegister(collectors...)
 
 	return collectors

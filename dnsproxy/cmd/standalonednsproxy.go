@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"io"
 	"log/slog"
 	"math"
 	"math/rand/v2"
@@ -17,12 +16,11 @@ import (
 	"github.com/cilium/cilium/dnsproxy/pkg/maps"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/logging/logfields"
+	"github.com/cilium/cilium/pkg/revert"
 	"github.com/cilium/cilium/pkg/u8proto"
 	"github.com/cilium/dns"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/status"
 
 	"github.com/cilium/cilium/dnsproxy/metrics"
 	sdpDNS "github.com/cilium/cilium/dnsproxy/pkg/dns"
@@ -47,17 +45,17 @@ var kacp = keepalive.ClientParameters{
 var serverPort = 40045 // default port for cilium-agent
 
 type StandaloneDNSProxyArgs struct {
-	logger                 *slog.Logger
-	address                string
-	port                   uint16
-	ipv4                   bool
-	ipv6                   bool
-	enableDNSCompression   bool
-	maxRestoreDNSIps       int
-	concurrencyLimit       int
-	concurrencyGracePeriod time.Duration
-	toFqdnServerPort       uint16
-	enableL7Proxy          bool
+	Logger                 *slog.Logger
+	Address                string
+	Port                   uint16
+	IPv4                   bool
+	IPv6                   bool
+	EnableDNSCompression   bool
+	MaxRestoreDNSIps       int
+	ConcurrencyLimit       int
+	ConcurrencyGracePeriod time.Duration
+	ToFqdnServerPort       uint16
+	EnableL7Proxy          bool
 }
 
 type StandaloneDNSProxy struct {
@@ -67,10 +65,9 @@ type StandaloneDNSProxy struct {
 	connectionWatcher *ConnectionWatcher
 
 	ciliumAgentConnection    *trigger.Trigger
-	dnsRulesStream           pb.AzureFQDNData_SubscribeToDNSRulesClient
 	fqdnMappingStreamWrapper *FqdnMappingStreamWrapper
+	dnsRulesStreamWrapper    *DNSRulesStreamWrapper
 
-	cancelSubscribeToDNSRules        context.CancelFunc
 	ciliumAgentConnectionContext     context.Context
 	cancelCiliumAgentConnectionUsers context.CancelFunc
 	log                              *slog.Logger
@@ -105,11 +102,6 @@ func (sdp *StandaloneDNSProxy) StopStandaloneDNSProxy() error {
 	return nil
 }
 
-// StartStandaloneDNSProxy starts a standalone DNS proxy
-//   - The first step is to read the file system to recover the DNS entries
-//   - The second step is initialize the Regex for the DNS entries
-//   - The third step is to start the DNS proxy
-//   - the fourth step is to connect to the FQDN service(hosted by the agent)
 func (sdp *StandaloneDNSProxy) StartCiliumAgentConnection() error {
 	var err error
 	defer func() {
@@ -133,14 +125,29 @@ func (sdp *StandaloneDNSProxy) StartCiliumAgentConnection() error {
 	sdp.log.Debug("Successfully created client for Cilium agent")
 
 	// Create the subscription stream
-	if sdp.dnsRulesStream == nil {
-		err = sdp.createSubscriptionStream(context.Background())
+	if sdp.dnsRulesStreamWrapper == nil {
+		sdp.dnsRulesStreamWrapper, err = NewDNSRulesStreamWrapper(
+			sdp.Client,
+			sdp.connectionWatcher.connectionLock,
+			sdp.ciliumAgentConnection.TriggerWithReason,
+			sdp.ciliumAgentConnectionContext,
+			sdp.UpdateDNSRules,
+			sdp.log,
+		)
+
 		if err != nil {
-			sdp.log.Error("Failed to create subscription stream", logfields.Error, err)
+			sdp.log.Error("Failed to create DNS rules stream wrapper", logfields.Error, err)
 			return err
 		}
+
+		sdp.log.Info("DNS rules stream wrapper created")
 	}
 
+	// Create the DNS rules stream
+	err = sdp.dnsRulesStreamWrapper.CreateDNSRulesStreamIfNil(sdp.Client, sdp.ciliumAgentConnectionContext, false)
+	if err != nil {
+		return err
+	}
 	sdp.log.Info("DNS rules stream created")
 
 	if sdp.fqdnMappingStreamWrapper == nil {
@@ -159,18 +166,15 @@ func (sdp *StandaloneDNSProxy) StartCiliumAgentConnection() error {
 		sdp.log.Info("FQDN mapping stream wrapper created")
 	}
 
-	if sdp.fqdnMappingStreamWrapper.fqdnMappingStream == nil {
-		// This is a stream reset scenario. During init, the stream is created as part of the wrapper
-		err = sdp.fqdnMappingStreamWrapper.CreateFqdnMappingStreamIfNil(sdp.Client, sdp.ciliumAgentConnectionContext)
-		if err != nil {
-			return err
-		}
-
-		sdp.fqdnMappingStreamWrapper.streamResetComplete <- struct{}{}
+	// Create the FQDN Mapping stream
+	err = sdp.fqdnMappingStreamWrapper.CreateFqdnMappingStreamIfNil(sdp.Client, sdp.ciliumAgentConnectionContext, false)
+	if err != nil {
+		return err
 	}
 
 	sdp.log.Info("Cilium agent connection created successfully")
 
+	isConnected.Store(true)
 	return nil
 }
 
@@ -226,39 +230,44 @@ func (sdp *StandaloneDNSProxy) ConnectToCiliumAgent() error {
 	return nil // Successfully reconnected
 }
 
+// StartStandaloneDNSProxy starts a standalone DNS proxy
+// It initializes the local identity cache and starts the DNS proxy.
+// It also creates a trigger to connect to the cilium agent and starts the connection.
+// The trigger is responsible for creating the connection and starting the grpc streams.
 func (sdp *StandaloneDNSProxy) StartStandaloneDNSProxy(args *StandaloneDNSProxyArgs) error {
 
 	// Initialize the local identity cache
 	maps.Init()
 	dnsproxyConfig := dnsproxy.DNSProxyConfig{
-		Logger:                 args.logger,
-		Address:                args.address,
-		IPv4:                   args.ipv4,
-		IPv6:                   args.ipv6,
-		EnableDNSCompression:   args.enableDNSCompression,
-		MaxRestoreDNSIPs:       args.maxRestoreDNSIps,
-		ConcurrencyLimit:       args.concurrencyLimit,
-		ConcurrencyGracePeriod: args.concurrencyGracePeriod,
+		Logger:                 args.Logger,
+		Address:                args.Address,
+		IPv4:                   args.IPv4,
+		IPv6:                   args.IPv6,
+		EnableDNSCompression:   args.EnableDNSCompression,
+		MaxRestoreDNSIPs:       args.MaxRestoreDNSIps,
+		ConcurrencyLimit:       args.ConcurrencyLimit,
+		ConcurrencyGracePeriod: args.ConcurrencyGracePeriod,
 	}
 
 	sdp.DNSProxy = dnsproxy.NewDNSProxy(dnsproxyConfig, sdp, sdp.LookupEPByIP, sdp.NotifyOnDNSMsg)
 
-	if err := sdp.DNSProxy.Listen(args.port); err != nil {
+	if err := sdp.DNSProxy.Listen(args.Port); err != nil {
+		metrics.ProxyBootstrapError.WithLabelValues(err.Error()).Inc()
 		return fmt.Errorf("failed to start DNS proxy: %w", err)
 	}
 
 	// Override the default server port if specified
-	if args.toFqdnServerPort != 0 {
-		serverPort = int(args.toFqdnServerPort)
+	if args.ToFqdnServerPort != 0 {
+		serverPort = int(args.ToFqdnServerPort)
 	}
 
-	if !args.enableL7Proxy {
+	if !args.EnableL7Proxy {
 		sdp.log.Info("L7 Proxy is disabled")
 		// In case of ACNS enabled with just obs as true, we start the daemonset with no-ops.
 		isConnected.Store(true)
 		return nil
 	}
-	sdp.log.Info("DNS Proxy started", logfields.Address, args.address, logfields.Port, args.port)
+	sdp.log.Info("DNS Proxy started", logfields.Address, args.Address, logfields.Port, args.Port)
 
 	// Create the cilium agent connection trigger
 	err := sdp.createCiliumAgentConnectionTrigger()
@@ -274,8 +283,8 @@ func (sdp *StandaloneDNSProxy) StartStandaloneDNSProxy(args *StandaloneDNSProxyA
 
 // createCiliumAgentConnectionTrigger creates a trigger to connect to the cilium agent
 // 1. It tries to connect to the cilium agent
-// 2. If the connection is successful, it tries to start the grpc streams
-// 3. If the streams are started, it tries to subscribe to the DNS rules as go routine
+// 2. If the connection is successful, it tries to start the grpc streams using the connection.
+// Each stream has its own wrapper, which handles the stream creation and errors.
 func (sdp *StandaloneDNSProxy) createCiliumAgentConnectionTrigger() error {
 	var err error
 	sdp.ciliumAgentConnection, err = trigger.NewTrigger(trigger.Parameters{
@@ -310,12 +319,6 @@ func (sdp *StandaloneDNSProxy) createCiliumAgentConnectionTrigger() error {
 				sdp.log.Error("Failed to start cilium agent connection")
 				return
 			}
-
-			ctx, cancel := context.WithCancel(context.Background())
-			sdp.cancelSubscribeToDNSRules = cancel // Store the cancel function for later use
-
-			// 3. Try to subscribe to the DNS rules
-			go sdp.subscribeToDNSRules(ctx)
 		},
 	})
 	if err != nil {
@@ -364,11 +367,18 @@ func (sdp *StandaloneDNSProxy) LookupSecIDByIP(ip netip.Addr) (secID ipcache.Ide
 	}, true
 }
 
+func (sdp *StandaloneDNSProxy) GetDNSMsgType(msg *dns.Msg) string {
+	if msg.Response {
+		return "response"
+	}
+	return "request"
+}
+
 func (s *StandaloneDNSProxy) NotifyOnDNSMsg(lookupTime time.Time, ep *endpoint.Endpoint, epIPPort string, serverID identity.NumericIdentity, serverAddr netip.AddrPort, msg *dns.Msg, protocol string, allowed bool, stat *dnsproxy.ProxyRequestContext) error {
 	s.log.Debug("Received DNS message", logfields.Message, msg)
 
 	if stat.Err != nil {
-		metrics.DNSRequestNotResolved.WithLabelValues(stat.Err.Error()).Inc()
+		metrics.DNSRequestNotResolved.WithLabelValues(stat.Err.Error(), s.GetDNSMsgType(msg)).Inc()
 	}
 
 	if s.fqdnMappingStreamWrapper == nil {
@@ -378,6 +388,7 @@ func (s *StandaloneDNSProxy) NotifyOnDNSMsg(lookupTime time.Time, ep *endpoint.E
 	qname, responseIPs, TTL, CNAMEs, rcode, answerTypes, qtypes, err := dnsproxy.ExtractMsgDetails(msg)
 	if err != nil {
 		s.log.Error("cannot extract DNS message details", logfields.Error, err)
+		metrics.DNSRequestNotResolved.WithLabelValues(err.Error(), s.GetDNSMsgType(msg)).Inc()
 		return err
 	}
 
@@ -391,6 +402,7 @@ func (s *StandaloneDNSProxy) NotifyOnDNSMsg(lookupTime time.Time, ep *endpoint.E
 	clientIp, _, err := net.SplitHostPort(epIPPort)
 	if err != nil {
 		s.log.Error("Failed to split IP:Port")
+		metrics.DNSRequestNotResolved.WithLabelValues(err.Error(), s.GetDNSMsgType(msg)).Inc()
 		return err
 	}
 
@@ -451,69 +463,6 @@ func convertToUint32Slice(input []uint16) []uint32 {
 	return output
 }
 
-// subscribeToDNSRules subscribes to the DNS rules
-// 1. Tries to get the stream connected
-// 2. If the stream is connected, it waits for the DNS rules to be received
-func (sdp *StandaloneDNSProxy) subscribeToDNSRules(ctx context.Context) error {
-	var err error
-	defer func() {
-		if err != nil {
-			sdp.closeDNSRuleStream()
-			switch status.Code(err) {
-			case codes.Unavailable:
-				sdp.closeConnection()
-				sdp.ciliumAgentConnection.TriggerWithReason("DNS server unavailable")
-			default:
-				if err == io.EOF {
-					sdp.closeConnection()
-					sdp.ciliumAgentConnection.TriggerWithReason("Received EOF from DNS rules stream")
-					sdp.log.Error("Received EOF from DNS rules stream")
-				} else {
-					sdp.ciliumAgentConnection.TriggerWithReason("Failed to subscribe to DNS rules")
-					sdp.log.Error("Failed to subscribe to DNS rules", logfields.Error, err)
-				}
-			}
-			metrics.RetrieveDNSRules.WithLabelValues(err.Error()).Inc()
-		}
-		sdp.cancelSubscribeToDNSRules()
-	}()
-
-	for {
-		select {
-		case <-ctx.Done():
-			// Context was cancelled, exit goroutine
-			sdp.log.Info("Stopping subscription to DNS rules")
-			return nil
-		default:
-			sdp.log.Debug("Waiting for DNS rules")
-			isConnected.Store(true)
-			newRules, recvErr := sdp.dnsRulesStream.Recv()
-			if recvErr != nil {
-				if recvErr == io.EOF || status.Code(recvErr) == codes.Unavailable {
-					sdp.log.Error("DNS rules stream closed", logfields.Error, recvErr)
-					err = recvErr
-					return err
-				}
-				sdp.log.Error("Failed to receive DNS rules", logfields.Error, recvErr)
-				err = recvErr // Set the outer err for the deferred function to handle.
-				return err
-			}
-			sdp.log.Debug("Received DNS rule", logfields.Rules, newRules)
-			sdp.UpdateDNSRules(newRules)
-		}
-	}
-}
-
-func (sdp *StandaloneDNSProxy) closeDNSRuleStream() {
-	if sdp.dnsRulesStream != nil {
-		err := sdp.dnsRulesStream.CloseSend()
-		if err != nil {
-			sdp.log.Error("Failed to close DNS rules stream", logfields.Error, err)
-		}
-		sdp.dnsRulesStream = nil
-	}
-}
-
 func (sdp *StandaloneDNSProxy) closeConnection() error {
 	if sdp.connection != nil {
 		err := sdp.connection.Close()
@@ -526,23 +475,18 @@ func (sdp *StandaloneDNSProxy) closeConnection() error {
 	return nil
 }
 
-func (sdp *StandaloneDNSProxy) createSubscriptionStream(ctx context.Context) error {
-	if sdp.Client == nil {
-		sdp.log.Error("Client is nil")
-		return fmt.Errorf("client is nil")
-	}
-
-	stream, err := sdp.Client.SubscribeToDNSRules(ctx, &pb.Request{})
-	if err != nil {
-		sdp.log.Error("Failed to subscribe to DNS rules", logfields.Error, err)
-		metrics.RetrieveDNSRules.WithLabelValues(err.Error()).Inc()
-		return err
-	}
-	sdp.dnsRulesStream = stream
-	return nil
-}
-
 func (sdp *StandaloneDNSProxy) UpdateDNSRules(newRules *pb.DNSPolicyRules) {
+	var revertFuncs revert.RevertStack
+	var retErr error
+	defer func() {
+		if retErr != nil {
+			sdp.log.Error("Failed to update DNS rules, reverting changes", logfields.Error, retErr)
+			if rErr := revertFuncs.Revert(); rErr != nil {
+				sdp.log.Error("Failed to revert DNS rules changes", logfields.Error, rErr)
+			}
+		}
+	}()
+
 	// Format the DNS rules to DNS proxy rules
 	l7DataMap := make(policy.L7DataMap)
 	for _, rule := range newRules.GetRules() {
@@ -572,5 +516,12 @@ func (sdp *StandaloneDNSProxy) UpdateDNSRules(newRules *pb.DNSPolicyRules) {
 		protocol = u8proto.U8proto(newRules.GetProtocol())
 		destPortProto = restore.MakeV2PortProto(uint16(newRules.GetPort()), protocol)
 	}
-	sdp.DNSProxy.UpdateAllowed(newRules.GetEndpointId(), destPortProto, l7DataMap)
+	revert, err := sdp.DNSProxy.UpdateAllowed(newRules.GetEndpointId(), destPortProto, l7DataMap)
+	if err != nil {
+		sdp.log.Error("Failed to update DNS rules for endpoint", logfields.EndpointID, newRules.GetEndpointId(), logfields.Error, err)
+		metrics.RetrieveDNSRules.WithLabelValues(err.Error()).Inc()
+		retErr = err
+		return
+	}
+	revertFuncs.Push(revert)
 }

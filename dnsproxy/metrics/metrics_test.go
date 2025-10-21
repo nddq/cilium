@@ -8,6 +8,7 @@ import (
 
 	"github.com/cilium/dns"
 	"github.com/cilium/hive/hivetest"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 
 	"github.com/cilium/cilium/dnsproxy/cmd"
@@ -79,4 +80,36 @@ func TestNotifyOnDNSMsgMetrics(t *testing.T) {
 	sdp.DNSProxy.ServeDNS(w, request)
 	finalValue := cilMetrics.ProxyDNSRequestsTotal.Get()
 	assert.Equal(t, initialValue+1, finalValue, "DNSRequestsTotal metric should increase by 1")
+}
+
+func TestProxyBootstrapErrorMetric(t *testing.T) {
+	// Reset and register metrics
+	metrics.Register()
+
+	// Get the initial metric value
+	m := &dto.Metric{}
+	errorLabel := "failed to bind DNS proxy: failed to listen on tcp4: listen tcp4 127.0.0.1:5353: setsockopt(IP_TRANSPARENT) for ipv4 failed: operation not permitted"
+	metrics.ProxyBootstrapError.WithLabelValues(errorLabel).Write(m)
+	assert.Equal(t, float64(0), m.GetCounter().GetValue(), "Initial value of ProxyBootstrapError metric should be 0")
+
+	// First, test normal startup - should succeed and not increment the error counter
+	log := hivetest.Logger(t)
+	sdp := cmd.NewStandaloneDNSProxy(log)
+	err := sdp.StartStandaloneDNSProxy(&cmd.StandaloneDNSProxyArgs{
+		Address:                "",
+		Port:                   5353,
+		IPv4:                   true,
+		IPv6:                   false,
+		EnableDNSCompression:   true,
+		MaxRestoreDNSIps:       1000,
+		ConcurrencyLimit:       10,
+		ConcurrencyGracePeriod: 0,
+		ToFqdnServerPort:       40045,
+		EnableL7Proxy:          false, // Disable L7 proxy for test to avoid connecting to cilium-agent
+		Logger:                 log,
+	})
+	// Check if the error occurred as error is expected to happen
+	assert.Error(t, err)
+	metrics.ProxyBootstrapError.WithLabelValues(errorLabel).Write(m)
+	assert.Equal(t, float64(1), m.GetCounter().GetValue(), "ProxyBootstrapError metric should be incremented")
 }

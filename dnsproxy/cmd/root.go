@@ -87,25 +87,25 @@ func registerDNSProxyHooks(params standaloneDNSProxyParams) {
 	sdp := NewStandaloneDNSProxy(params.Logger)
 
 	args := &StandaloneDNSProxyArgs{
-		address:                "",
-		port:                   uint16(option.Config.ToFQDNsProxyPort),
-		ipv4:                   option.Config.EnableIPv4,
-		ipv6:                   option.Config.EnableIPv6,
-		enableDNSCompression:   option.Config.ToFQDNsEnableDNSCompression,
-		maxRestoreDNSIps:       option.Config.DNSMaxIPsPerRestoredRule,
-		concurrencyLimit:       option.Config.DNSProxyConcurrencyLimit,
-		concurrencyGracePeriod: option.Config.DNSProxyConcurrencyProcessingGracePeriod,
-		logger:                 params.Logger,
-		toFqdnServerPort:       uint16(params.FQDNConfig.StandaloneDNSProxyServerPort),
-		enableL7Proxy:          option.Config.EnableL7Proxy,
+		Address:                "",
+		Port:                   uint16(option.Config.ToFQDNsProxyPort),
+		IPv4:                   option.Config.EnableIPv4,
+		IPv6:                   option.Config.EnableIPv6,
+		EnableDNSCompression:   option.Config.ToFQDNsEnableDNSCompression,
+		MaxRestoreDNSIps:       option.Config.DNSMaxIPsPerRestoredRule,
+		ConcurrencyLimit:       option.Config.DNSProxyConcurrencyLimit,
+		ConcurrencyGracePeriod: option.Config.DNSProxyConcurrencyProcessingGracePeriod,
+		Logger:                 params.Logger,
+		ToFqdnServerPort:       uint16(params.FQDNConfig.StandaloneDNSProxyServerPort),
+		EnableL7Proxy:          option.Config.EnableL7Proxy,
 	}
 
 	// Todo: add the log with individual fields
 	params.Logger.Info("Starting standalone DNS proxy",
-		logfields.Address, args.address,
-		logfields.Port, args.port,
-		logfields.IPv4, args.ipv4,
-		logfields.IPv6, args.ipv6,
+		logfields.Address, args.Address,
+		logfields.Port, args.Port,
+		logfields.IPv4, args.IPv4,
+		logfields.IPv6, args.IPv6,
 	)
 
 	params.Lifecycle.Append(cell.Hook{

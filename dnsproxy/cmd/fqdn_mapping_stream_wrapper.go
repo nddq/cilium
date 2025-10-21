@@ -71,7 +71,7 @@ func NewFqdnMappingStreamWrapper(
 	w.fqdnMappingChannel = make(chan *pb.AzureFQDNMapping)
 	w.connectionLock = connectionLock
 	w.streamErrored.Store(false)
-	w.CreateFqdnMappingStreamIfNil(client, connectionCtx)
+	w.CreateFqdnMappingStreamIfNil(client, connectionCtx, true)
 	w.createFQDNMappingSenders()
 	w.createFqdnResponseReceiver()
 	w.createFQDNMappingStreamCleaner(triggerFunction)
@@ -80,7 +80,7 @@ func NewFqdnMappingStreamWrapper(
 
 // CreateFqdnMappingStreamIfNil creates the FQDN mapping stream if it is nil.
 // It is used at initialization, and also to recreate the stream after errors.
-func (w *FqdnMappingStreamWrapper) CreateFqdnMappingStreamIfNil(client pb.AzureFQDNDataClient, ctx context.Context) error {
+func (w *FqdnMappingStreamWrapper) CreateFqdnMappingStreamIfNil(client pb.AzureFQDNDataClient, ctx context.Context, initial bool) error {
 	// Create the FQDN mapping stream
 	if w.fqdnMappingStream == nil {
 		ctx, cancel := context.WithCancel(ctx)
@@ -92,6 +92,10 @@ func (w *FqdnMappingStreamWrapper) CreateFqdnMappingStreamIfNil(client pb.AzureF
 		}
 		w.fqdnMappingStream = st
 		w.log.Info("Created new FQDN mapping stream")
+
+		if !initial {
+			w.streamResetComplete <- struct{}{}
+		}
 	}
 
 	return nil
