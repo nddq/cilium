@@ -94,6 +94,7 @@ func NewStandaloneDNSProxy(logger *slog.Logger) *StandaloneDNSProxy {
 }
 
 func (sdp *StandaloneDNSProxy) StopStandaloneDNSProxy() error {
+	isConnected.Store(false)
 	sdp.DNSProxy.Cleanup()
 
 	err := sdp.closeConnection()
@@ -253,6 +254,8 @@ func (sdp *StandaloneDNSProxy) StartStandaloneDNSProxy(args *StandaloneDNSProxyA
 
 	if !args.enableL7Proxy {
 		sdp.log.Info("L7 Proxy is disabled")
+		// In case of ACNS enabled with just obs as true, we start the daemonset with no-ops.
+		isConnected.Store(true)
 		return nil
 	}
 	sdp.log.Info("DNS Proxy started", logfields.Address, args.address, logfields.Port, args.port)
@@ -286,6 +289,7 @@ func (sdp *StandaloneDNSProxy) createCiliumAgentConnectionTrigger() error {
 				}
 			}()
 			sdp.log.Info("Triggering cilium agent connection", logfields.Reasons, reasons)
+			isConnected.Store(false)
 			// 1. Try creating the connection to the cilium agent
 			if sdp.connection == nil {
 				err := sdp.ConnectToCiliumAgent()
@@ -482,6 +486,7 @@ func (sdp *StandaloneDNSProxy) subscribeToDNSRules(ctx context.Context) error {
 			return nil
 		default:
 			sdp.log.Debug("Waiting for DNS rules")
+			isConnected.Store(true)
 			newRules, recvErr := sdp.dnsRulesStream.Recv()
 			if recvErr != nil {
 				if recvErr == io.EOF || status.Code(recvErr) == codes.Unavailable {

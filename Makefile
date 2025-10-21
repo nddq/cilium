@@ -262,7 +262,7 @@ manifests: ## Generate K8s manifests e.g. CRD, RBAC etc.
 	contrib/scripts/k8s-manifests-gen.sh
 
 .PHONY: generate-apis
-generate-apis: generate-api generate-health-api generate-hubble-api generate-operator-api generate-kvstoremesh-api generate-sdp-api
+generate-apis: generate-api generate-health-api generate-hubble-api generate-operator-api generate-kvstoremesh-api generate-sdp-api generate-dnsproxy-api
 
 generate-api: api/v1/openapi.yaml ## Generate cilium-agent client, model and server code from openapi spec.
 	@$(ECHO_GEN)api/v1/openapi.yaml
@@ -315,6 +315,23 @@ generate-operator-api: api/v1/operator/openapi.yaml ## Generate cilium-operator 
 		-r hack/spdx-copyright-header.txt
 	@# sort goimports automatically
 	$(QUIET)$(GO) run golang.org/x/tools/cmd/goimports -w ./api/v1/operator
+
+generate-dnsproxy-api: api/v1/dnsproxy/openapi.yaml ## Generate cilium-operator client, model and server code from openapi spec.
+	@$(ECHO_GEN)api/v1/dnsproxy/openapi.yaml
+	-$(QUIET)$(SWAGGER) generate server -s server -a restapi \
+		-t api/v1 \
+		-t api/v1/dnsproxy/ \
+		-f api/v1/dnsproxy/openapi.yaml \
+		--default-scheme=http \
+		-C api/v1/cilium-server.yml \
+		-r hack/spdx-copyright-header.txt
+	-$(QUIET)$(SWAGGER) generate client -a restapi \
+		-t api/v1 \
+		-t api/v1/dnsproxy/ \
+		-f api/v1/dnsproxy/openapi.yaml \
+		-r hack/spdx-copyright-header.txt
+	@# sort goimports automatically
+	-$(QUIET)$(GO) run golang.org/x/tools/cmd/goimports -w ./api/v1/dnsproxy
 
 generate-kvstoremesh-api: api/v1/kvstoremesh/openapi.yaml ## Generate kvstoremesh client, model and server code from openapi spec.
 	@$(ECHO_GEN)api/v1/kvstoremesh/openapi.yaml

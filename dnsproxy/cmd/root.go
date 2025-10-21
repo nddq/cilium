@@ -5,15 +5,17 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"sync/atomic"
 
+	"github.com/cilium/cilium/pkg/hive"
+	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/hive/cell"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/cilium/cilium/dnsproxy/api"
 	"github.com/cilium/cilium/dnsproxy/metrics"
 	"github.com/cilium/cilium/pkg/fqdn/service"
-	"github.com/cilium/cilium/pkg/hive"
-	"github.com/cilium/cilium/pkg/logging"
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/option"
 )
@@ -26,9 +28,15 @@ var (
 		cell.Provide(func() *option.DaemonConfig { return option.Config }),
 		cell.Config(service.DefaultConfig),
 		cell.Invoke(registerDNSProxyHooks),
+		api.ServerCell,
+		api.HealthHandlerCell(),
+		api.ReadinessHandlerCell(isConnected.Load),
 	)
 
 	binaryName = "standalone-dns-proxy"
+
+	// StandaloneDNSPRoxy is able to connect to the cilium agent
+	isConnected atomic.Bool
 )
 
 func NewDNSProxyCmd(h *hive.Hive) *cobra.Command {
