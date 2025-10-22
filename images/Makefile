@@ -2,10 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 REGISTRIES ?= docker.io/cilium
+ACN_REGISTRIES ?= acnpublic.azurecr.io/cilium
 # quay.io is not enabled, see https://github.com/cilium/image-tools/issues/11
 # REGISTRIES ?= docker.io/cilium quay.io/cilium
 
 PUSH ?= false
+TEST ?= false
 
 OUTPUT := "type=image"
 ifeq ($(PUSH),true)
@@ -14,7 +16,26 @@ endif
 
 PLATFORMS=linux/amd64,linux/arm64
 RUNTIME_IMAGE=quay.io/cilium/cilium-runtime
+ACN_RUNTIME_IMAGE=acnpublic.azurecr.io/cilium/cilium-runtime-distroless
 RUNTIME_DIRECTORY?=images/runtime
+DISTROLESS_RUNTIME_DIRECTORY?=images/distroless/runtime
+
+
+## ACN Recipes
+
+distroless-runtime-image: .buildx_builder
+	TEST=$(TEST) ROOT_CONTEXT=true scripts/build-image.sh cilium-runtime-distroless $(DISTROLESS_RUNTIME_DIRECTORY) $(PLATFORMS) $(OUTPUT) "$$(cat .buildx_builder)" $(ACN_REGISTRIES)
+
+update-distroless-runtime-image:
+	distroless/scripts/update-cilium-runtime-image.sh $(ACN_RUNTIME_IMAGE) $(DISTROLESS_RUNTIME_DIRECTORY)
+
+distroless-builder-image: .buildx_builder
+	TEST=$(TEST) ROOT_CONTEXT=true scripts/build-image.sh cilium-builder-distroless images/distroless/builder $(PLATFORMS) $(OUTPUT) "$$(cat .buildx_builder)" $(ACN_REGISTRIES)
+
+update-distroless-builder-image:
+	distroless/scripts/update-cilium-builder-image.sh
+
+## Upstream Recipes
 
 all-images: lint runtime-image builder-image cilium-image operator-image hubble-relay-image
 
@@ -58,3 +79,4 @@ update-envoy-image:
 
 check-envoy-image:
 	scripts/check-cilium-envoy-image.sh
+
