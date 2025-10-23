@@ -312,6 +312,9 @@ const (
 	// EnableBPFMasquerade masquerades packets from endpoints leaving the host with BPF instead of iptables
 	EnableBPFMasquerade = "enable-bpf-masquerade"
 
+	// EnableRemoteNodeMasquerade Masquerade IPv4 packets from endpoints leaving the host destined to a remote node.
+	EnableRemoteNodeMasquerade = "enable-remote-node-masquerade"
+
 	// EnableMasqueradeRouteSource masquerades to the source route IP address instead of the interface one
 	EnableMasqueradeRouteSource = "enable-masquerade-to-route-source"
 
@@ -1530,6 +1533,7 @@ type DaemonConfig struct {
 
 	// Masquerade specifies whether or not to masquerade packets from endpoints
 	// leaving the host.
+	EnableRemoteNodeMasquerade	bool
 	EnableIPv4Masquerade        bool
 	EnableIPv6Masquerade        bool
 	EnableBPFMasquerade         bool
@@ -2732,6 +2736,7 @@ func (c *DaemonConfig) Populate(logger *slog.Logger, vp *viper.Viper) {
 	c.EnableIPv4Masquerade = vp.GetBool(EnableIPv4Masquerade) && c.EnableIPv4
 	c.EnableIPv6Masquerade = vp.GetBool(EnableIPv6Masquerade) && c.EnableIPv6
 	c.EnableBPFMasquerade = vp.GetBool(EnableBPFMasquerade)
+	c.EnableRemoteNodeMasquerade = vp.GetBool(EnableRemoteNodeMasquerade)
 	c.EnableMasqueradeRouteSource = vp.GetBool(EnableMasqueradeRouteSource)
 	c.EnablePMTUDiscovery = vp.GetBool(EnablePMTUDiscovery)
 	c.IPv6NAT46x64CIDR = defaults.IPv6NAT46x64CIDR
