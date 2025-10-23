@@ -4,7 +4,7 @@
 ARG DISTRO=mariner
 
 ARG TESTER_IMAGE=quay.io/cilium/image-tester:dd09c8d3ef349a909fbcdc99279516baef153f22@sha256:c056d064cb47c97acd607343db5457e1d49d9338d6d8a87e93e23cc93f052c73
-ARG GOLANG_IMAGE=mcr.microsoft.com/oss/go/microsoft/golang:1.24.5-1@sha256:f59a65c0f184272571147cdfe8d813adfb9b82035575f4a59057f7fe11fb1e03
+ARG GOLANG_IMAGE=mcr.microsoft.com/oss/go/microsoft/golang:1.24.7-1@sha256:5dbe1584bb4d5e4e737a757f42d651418bf11359c01aa9a886433ca01e8ba481
 ARG UBUNTU_IMAGE=docker.io/library/ubuntu:22.04@sha256:0e5e4a57c2499249aafc3b40fcd541e9a456aab7296681a3994d631587203f97
 ARG MARINER_IMAGE=mcr.microsoft.com/azurelinux/base/core:3.0@sha256:c09a4e011a092a45b5c46ac5633253eb1e1106df028912b89cbe225d9061ef0b
 
