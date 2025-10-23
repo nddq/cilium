@@ -8,7 +8,6 @@ package dnsproxy
 
 import (
 	context "context"
-
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
@@ -20,29 +19,29 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AzureFQDNData_SubscribeToDNSRules_FullMethodName = "/dnsproxy.AzureFQDNData/SubscribeToDNSRules"
-	AzureFQDNData_UpdateMappings_FullMethodName      = "/dnsproxy.AzureFQDNData/UpdateMappings"
+	FQDNData_SubscribeToDNSRules_FullMethodName = "/dnsproxy.FQDNData/SubscribeToDNSRules"
+	FQDNData_UpdateMappings_FullMethodName      = "/dnsproxy.FQDNData/UpdateMappings"
 )
 
-// AzureFQDNDataClient is the client API for AzureFQDNData service.
+// FQDNDataClient is the client API for FQDNData service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
-type AzureFQDNDataClient interface {
+type FQDNDataClient interface {
 	SubscribeToDNSRules(ctx context.Context, in *Request, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DNSPolicyRules], error)
-	UpdateMappings(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AzureFQDNMapping, Result], error)
+	UpdateMappings(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[FQDNMapping, Result], error)
 }
 
-type azureFQDNDataClient struct {
+type fQDNDataClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewAzureFQDNDataClient(cc grpc.ClientConnInterface) AzureFQDNDataClient {
-	return &azureFQDNDataClient{cc}
+func NewFQDNDataClient(cc grpc.ClientConnInterface) FQDNDataClient {
+	return &fQDNDataClient{cc}
 }
 
-func (c *azureFQDNDataClient) SubscribeToDNSRules(ctx context.Context, in *Request, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DNSPolicyRules], error) {
+func (c *fQDNDataClient) SubscribeToDNSRules(ctx context.Context, in *Request, opts ...grpc.CallOption) (grpc.ServerStreamingClient[DNSPolicyRules], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AzureFQDNData_ServiceDesc.Streams[0], AzureFQDNData_SubscribeToDNSRules_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FQDNData_ServiceDesc.Streams[0], FQDNData_SubscribeToDNSRules_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -57,96 +56,96 @@ func (c *azureFQDNDataClient) SubscribeToDNSRules(ctx context.Context, in *Reque
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AzureFQDNData_SubscribeToDNSRulesClient = grpc.ServerStreamingClient[DNSPolicyRules]
+type FQDNData_SubscribeToDNSRulesClient = grpc.ServerStreamingClient[DNSPolicyRules]
 
-func (c *azureFQDNDataClient) UpdateMappings(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[AzureFQDNMapping, Result], error) {
+func (c *fQDNDataClient) UpdateMappings(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[FQDNMapping, Result], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &AzureFQDNData_ServiceDesc.Streams[1], AzureFQDNData_UpdateMappings_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FQDNData_ServiceDesc.Streams[1], FQDNData_UpdateMappings_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[AzureFQDNMapping, Result]{ClientStream: stream}
+	x := &grpc.GenericClientStream[FQDNMapping, Result]{ClientStream: stream}
 	return x, nil
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AzureFQDNData_UpdateMappingsClient = grpc.BidiStreamingClient[AzureFQDNMapping, Result]
+type FQDNData_UpdateMappingsClient = grpc.BidiStreamingClient[FQDNMapping, Result]
 
-// AzureFQDNDataServer is the server API for AzureFQDNData service.
-// All implementations should embed UnimplementedAzureFQDNDataServer
+// FQDNDataServer is the server API for FQDNData service.
+// All implementations should embed UnimplementedFQDNDataServer
 // for forward compatibility.
-type AzureFQDNDataServer interface {
+type FQDNDataServer interface {
 	SubscribeToDNSRules(*Request, grpc.ServerStreamingServer[DNSPolicyRules]) error
-	UpdateMappings(grpc.BidiStreamingServer[AzureFQDNMapping, Result]) error
+	UpdateMappings(grpc.BidiStreamingServer[FQDNMapping, Result]) error
 }
 
-// UnimplementedAzureFQDNDataServer should be embedded to have
+// UnimplementedFQDNDataServer should be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedAzureFQDNDataServer struct{}
+type UnimplementedFQDNDataServer struct{}
 
-func (UnimplementedAzureFQDNDataServer) SubscribeToDNSRules(*Request, grpc.ServerStreamingServer[DNSPolicyRules]) error {
+func (UnimplementedFQDNDataServer) SubscribeToDNSRules(*Request, grpc.ServerStreamingServer[DNSPolicyRules]) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeToDNSRules not implemented")
 }
-func (UnimplementedAzureFQDNDataServer) UpdateMappings(grpc.BidiStreamingServer[AzureFQDNMapping, Result]) error {
+func (UnimplementedFQDNDataServer) UpdateMappings(grpc.BidiStreamingServer[FQDNMapping, Result]) error {
 	return status.Errorf(codes.Unimplemented, "method UpdateMappings not implemented")
 }
-func (UnimplementedAzureFQDNDataServer) testEmbeddedByValue() {}
+func (UnimplementedFQDNDataServer) testEmbeddedByValue() {}
 
-// UnsafeAzureFQDNDataServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to AzureFQDNDataServer will
+// UnsafeFQDNDataServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to FQDNDataServer will
 // result in compilation errors.
-type UnsafeAzureFQDNDataServer interface {
-	mustEmbedUnimplementedAzureFQDNDataServer()
+type UnsafeFQDNDataServer interface {
+	mustEmbedUnimplementedFQDNDataServer()
 }
 
-func RegisterAzureFQDNDataServer(s grpc.ServiceRegistrar, srv AzureFQDNDataServer) {
-	// If the following call pancis, it indicates UnimplementedAzureFQDNDataServer was
+func RegisterFQDNDataServer(s grpc.ServiceRegistrar, srv FQDNDataServer) {
+	// If the following call pancis, it indicates UnimplementedFQDNDataServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&AzureFQDNData_ServiceDesc, srv)
+	s.RegisterService(&FQDNData_ServiceDesc, srv)
 }
 
-func _AzureFQDNData_SubscribeToDNSRules_Handler(srv interface{}, stream grpc.ServerStream) error {
+func _FQDNData_SubscribeToDNSRules_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(Request)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}
-	return srv.(AzureFQDNDataServer).SubscribeToDNSRules(m, &grpc.GenericServerStream[Request, DNSPolicyRules]{ServerStream: stream})
+	return srv.(FQDNDataServer).SubscribeToDNSRules(m, &grpc.GenericServerStream[Request, DNSPolicyRules]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AzureFQDNData_SubscribeToDNSRulesServer = grpc.ServerStreamingServer[DNSPolicyRules]
+type FQDNData_SubscribeToDNSRulesServer = grpc.ServerStreamingServer[DNSPolicyRules]
 
-func _AzureFQDNData_UpdateMappings_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(AzureFQDNDataServer).UpdateMappings(&grpc.GenericServerStream[AzureFQDNMapping, Result]{ServerStream: stream})
+func _FQDNData_UpdateMappings_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(FQDNDataServer).UpdateMappings(&grpc.GenericServerStream[FQDNMapping, Result]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type AzureFQDNData_UpdateMappingsServer = grpc.BidiStreamingServer[AzureFQDNMapping, Result]
+type FQDNData_UpdateMappingsServer = grpc.BidiStreamingServer[FQDNMapping, Result]
 
-// AzureFQDNData_ServiceDesc is the grpc.ServiceDesc for AzureFQDNData service.
+// FQDNData_ServiceDesc is the grpc.ServiceDesc for FQDNData service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var AzureFQDNData_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "dnsproxy.AzureFQDNData",
-	HandlerType: (*AzureFQDNDataServer)(nil),
+var FQDNData_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "dnsproxy.FQDNData",
+	HandlerType: (*FQDNDataServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "SubscribeToDNSRules",
-			Handler:       _AzureFQDNData_SubscribeToDNSRules_Handler,
+			Handler:       _FQDNData_SubscribeToDNSRules_Handler,
 			ServerStreams: true,
 		},
 		{
 			StreamName:    "UpdateMappings",
-			Handler:       _AzureFQDNData_UpdateMappings_Handler,
+			Handler:       _FQDNData_UpdateMappings_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

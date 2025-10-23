@@ -20,14 +20,14 @@ func (msg *Request) UnmarshalJSON(b []byte) error {
 }
 
 // MarshalJSON implements json.Marshaler
-func (msg *AzureFQDNMapping) MarshalJSON() ([]byte, error) {
+func (msg *FQDNMapping) MarshalJSON() ([]byte, error) {
 	return protojson.MarshalOptions{
 		UseProtoNames: true,
 	}.Marshal(msg)
 }
 
 // UnmarshalJSON implements json.Unmarshaler
-func (msg *AzureFQDNMapping) UnmarshalJSON(b []byte) error {
+func (msg *FQDNMapping) UnmarshalJSON(b []byte) error {
 	return protojson.UnmarshalOptions{}.Unmarshal(b, msg)
 }
 

@@ -17,20 +17,20 @@ import (
 // DummyUpdateMappingsClient is a dummy implementation of pb.FQDNData_UpdateMappingsClient.
 type DummyUpdateMappingsClient struct {
 	grpc.ClientStream
-	sendChan chan *pb.AzureFQDNMapping
+	sendChan chan *pb.FQDNMapping
 	recvChan chan *pb.Result
 	closeCh  chan struct{}
 }
 
 func NewDummyUpdateMappingsClient() *DummyUpdateMappingsClient {
 	return &DummyUpdateMappingsClient{
-		sendChan: make(chan *pb.AzureFQDNMapping, 1),
+		sendChan: make(chan *pb.FQDNMapping, 1),
 		recvChan: make(chan *pb.Result, 1),
 		closeCh:  make(chan struct{}),
 	}
 }
 
-func (d *DummyUpdateMappingsClient) Send(msg *pb.AzureFQDNMapping) error {
+func (d *DummyUpdateMappingsClient) Send(msg *pb.FQDNMapping) error {
 	select {
 	case d.sendChan <- msg:
 		return nil
@@ -59,12 +59,12 @@ func TestFqdnMappingStreamWrapper_SendMessage(t *testing.T) {
 	wrapper := &FqdnMappingStreamWrapper{
 		fqdnMappingStreamLock: utils.NewErrorAwareLock(nil),
 		fqdnMappingStream:     dummyClient,
-		fqdnMappingChannel:    make(chan *pb.AzureFQDNMapping, 1),
+		fqdnMappingChannel:    make(chan *pb.FQDNMapping, 1),
 		connectionLock:        connectionFixerLock,
 		log:                   hivetest.Logger(t),
 	}
 
-	message := &pb.AzureFQDNMapping{RequestId: 1}
+	message := &pb.FQDNMapping{RequestId: 1}
 	wrapper.fqdnMappingChannel <- message
 
 	go wrapper.createFQDNMappingSenders()
@@ -123,7 +123,7 @@ func TestFqdnMappingStreamWrapper_HandleErrorInSend(t *testing.T) {
 	wrapper := &FqdnMappingStreamWrapper{
 		fqdnMappingStreamLock: utils.NewErrorAwareLock(nil),
 		fqdnMappingStream:     dummyClient,
-		fqdnMappingChannel:    make(chan *pb.AzureFQDNMapping, 1),
+		fqdnMappingChannel:    make(chan *pb.FQDNMapping, 1),
 		streamResetComplete:   make(chan struct{}),
 		log:                   hivetest.Logger(t),
 		connectionLock:        connectionWatcher.connectionLock,
@@ -141,10 +141,10 @@ func TestFqdnMappingStreamWrapper_HandleErrorInSend(t *testing.T) {
 
 	wrapper.createFQDNMappingStreamCleaner(triggerFunc)
 	wrapper.createFQDNMappingSenders()
-	dummyClient.sendChan <- &pb.AzureFQDNMapping{RequestId: 1} // send a message to fill the send channel
+	dummyClient.sendChan <- &pb.FQDNMapping{RequestId: 1} // send a message to fill the send channel
 	close(dummyClient.closeCh)                                 // sends will fail
 
-	message := &pb.AzureFQDNMapping{RequestId: 1}
+	message := &pb.FQDNMapping{RequestId: 1}
 	wrapper.fqdnMappingChannel <- message
 	<-resetCalled
 	<-triggerCalled
@@ -157,7 +157,7 @@ func TestFqdnMappingStreamWrapper_HandleErrorInRecv(t *testing.T) {
 		fqdnMappingStreamLock: utils.NewErrorAwareLock(nil),
 		fqdnMappingStream:     dummyClient,
 		log:                   hivetest.Logger(t),
-		fqdnMappingChannel:    make(chan *pb.AzureFQDNMapping, 1),
+		fqdnMappingChannel:    make(chan *pb.FQDNMapping, 1),
 		connectionLock:        utils.NewErrorAwareLock(nil),
 	}
 

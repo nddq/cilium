@@ -60,7 +60,7 @@ type StandaloneDNSProxyArgs struct {
 
 type StandaloneDNSProxy struct {
 	DNSProxy          *dnsproxy.DNSProxy
-	Client            pb.AzureFQDNDataClient
+	Client            pb.FQDNDataClient
 	connection        *grpc.ClientConn
 	connectionWatcher *ConnectionWatcher
 
@@ -120,7 +120,7 @@ func (sdp *StandaloneDNSProxy) StartCiliumAgentConnection() error {
 	}
 
 	// Create the client
-	sdp.Client = pb.NewAzureFQDNDataClient(sdp.connection)
+	sdp.Client = pb.NewFQDNDataClient(sdp.connection)
 
 	sdp.log.Debug("Successfully created client for Cilium agent")
 
@@ -411,7 +411,7 @@ func (s *StandaloneDNSProxy) NotifyOnDNSMsg(lookupTime time.Time, ep *endpoint.E
 	messageID := uniqueID(int32(msg.Id), qname)
 	s.log.Debug("Message id for DNS message, qname, messageID", logfields.DNSRequestID, msg.Id, logfields.Name, qname, logfields.ID, messageID)
 
-	message := pb.AzureFQDNMapping{
+	message := pb.FQDNMapping{
 		FQDN:         qname,
 		IPS:          ips,
 		TTL:          TTL,

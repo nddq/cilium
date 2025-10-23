@@ -24,7 +24,7 @@ type DNSRulesStreamWrapper struct {
 	dnsRulesStreamLock *utils.ErrorAwareLock
 
 	// dnsRulesStream is the actual stream used to receive DNS rules.
-	dnsRulesStream pb.AzureFQDNData_SubscribeToDNSRulesClient
+	dnsRulesStream pb.FQDNData_SubscribeToDNSRulesClient
 
 	// streamResetComplete is a channel used to signal when the stream has been reset.
 	// It is not used during the initial creation of the stream.
@@ -49,7 +49,7 @@ type DNSRulesStreamWrapper struct {
 // - connectionCtx: the context used for the connection.
 // - updateRules: a function to update the DNS rules when they are received to DNS proxy.
 func NewDNSRulesStreamWrapper(
-	client pb.AzureFQDNDataClient,
+	client pb.FQDNDataClient,
 	connectionLock *utils.ErrorAwareLock,
 	triggerFunction func(string),
 	connectionCtx context.Context,
@@ -129,7 +129,7 @@ func (w *DNSRulesStreamWrapper) createDNSRulesStreamCleaner(triggerFunction func
 // CreateDNSRulesStreamIfNil creates a new DNS rules stream if it is nil.
 // It is used at initialization, and also to recreate the stream after errors.
 func (w *DNSRulesStreamWrapper) CreateDNSRulesStreamIfNil(
-	client pb.AzureFQDNDataClient,
+	client pb.FQDNDataClient,
 	connectionCtx context.Context,
 	initial bool,
 ) error {

@@ -7,12 +7,11 @@
 package dnsproxy
 
 import (
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
-
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -66,7 +65,7 @@ func (x *Request) GetMessage() string {
 	return ""
 }
 
-type AzureFQDNMapping struct {
+type FQDNMapping struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	FQDN          string                 `protobuf:"bytes,1,opt,name=FQDN,proto3" json:"FQDN,omitempty"`
 	IPS           [][]byte               `protobuf:"bytes,2,rep,name=IPS,proto3" json:"IPS,omitempty"`
@@ -79,20 +78,20 @@ type AzureFQDNMapping struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *AzureFQDNMapping) Reset() {
-	*x = AzureFQDNMapping{}
+func (x *FQDNMapping) Reset() {
+	*x = FQDNMapping{}
 	mi := &file_dnsproxy_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *AzureFQDNMapping) String() string {
+func (x *FQDNMapping) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*AzureFQDNMapping) ProtoMessage() {}
+func (*FQDNMapping) ProtoMessage() {}
 
-func (x *AzureFQDNMapping) ProtoReflect() protoreflect.Message {
+func (x *FQDNMapping) ProtoReflect() protoreflect.Message {
 	mi := &file_dnsproxy_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -104,54 +103,54 @@ func (x *AzureFQDNMapping) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use AzureFQDNMapping.ProtoReflect.Descriptor instead.
-func (*AzureFQDNMapping) Descriptor() ([]byte, []int) {
+// Deprecated: Use FQDNMapping.ProtoReflect.Descriptor instead.
+func (*FQDNMapping) Descriptor() ([]byte, []int) {
 	return file_dnsproxy_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *AzureFQDNMapping) GetFQDN() string {
+func (x *FQDNMapping) GetFQDN() string {
 	if x != nil {
 		return x.FQDN
 	}
 	return ""
 }
 
-func (x *AzureFQDNMapping) GetIPS() [][]byte {
+func (x *FQDNMapping) GetIPS() [][]byte {
 	if x != nil {
 		return x.IPS
 	}
 	return nil
 }
 
-func (x *AzureFQDNMapping) GetTTL() uint32 {
+func (x *FQDNMapping) GetTTL() uint32 {
 	if x != nil {
 		return x.TTL
 	}
 	return 0
 }
 
-func (x *AzureFQDNMapping) GetClientIp() []byte {
+func (x *FQDNMapping) GetClientIp() []byte {
 	if x != nil {
 		return x.ClientIp
 	}
 	return nil
 }
 
-func (x *AzureFQDNMapping) GetResponseCode() uint32 {
+func (x *FQDNMapping) GetResponseCode() uint32 {
 	if x != nil {
 		return x.ResponseCode
 	}
 	return 0
 }
 
-func (x *AzureFQDNMapping) GetMetrics() *MetricsData {
+func (x *FQDNMapping) GetMetrics() *MetricsData {
 	if x != nil {
 		return x.Metrics
 	}
 	return nil
 }
 
-func (x *AzureFQDNMapping) GetRequestId() uint32 {
+func (x *FQDNMapping) GetRequestId() uint32 {
 	if x != nil {
 		return x.RequestId
 	}
@@ -616,8 +615,8 @@ const file_dnsproxy_proto_rawDesc = "" +
 	"\n" +
 	"\x0ednsproxy.proto\x12\bdnsproxy\"#\n" +
 	"\aRequest\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\xdc\x01\n" +
-	"\x10AzureFQDNMapping\x12\x12\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\xd7\x01\n" +
+	"\vFQDNMapping\x12\x12\n" +
 	"\x04FQDN\x18\x01 \x01(\tR\x04FQDN\x12\x10\n" +
 	"\x03IPS\x18\x02 \x03(\fR\x03IPS\x12\x10\n" +
 	"\x03TTL\x18\x03 \x01(\rR\x03TTL\x12\x1b\n" +
@@ -665,10 +664,10 @@ const file_dnsproxy_proto_rawDesc = "" +
 	"endpointId\x12\x12\n" +
 	"\x04port\x18\x02 \x01(\rR\x04port\x12-\n" +
 	"\x05rules\x18\x03 \x03(\v2\x17.dnsproxy.DNSPolicyRuleR\x05rules\x12\x1a\n" +
-	"\bprotocol\x18\x04 \x01(\rR\bprotocol2\x9d\x01\n" +
-	"\rAzureFQDNData\x12F\n" +
-	"\x13SubscribeToDNSRules\x12\x11.dnsproxy.Request\x1a\x18.dnsproxy.DNSPolicyRules\"\x000\x01\x12D\n" +
-	"\x0eUpdateMappings\x12\x1a.dnsproxy.AzureFQDNMapping\x1a\x10.dnsproxy.Result\"\x00(\x010\x01B*Z(github.com/cilium/cilium/api/v1/dnsproxyb\x06proto3"
+	"\bprotocol\x18\x04 \x01(\rR\bprotocol2\x93\x01\n" +
+	"\bFQDNData\x12F\n" +
+	"\x13SubscribeToDNSRules\x12\x11.dnsproxy.Request\x1a\x18.dnsproxy.DNSPolicyRules\"\x000\x01\x12?\n" +
+	"\x0eUpdateMappings\x12\x15.dnsproxy.FQDNMapping\x1a\x10.dnsproxy.Result\"\x00(\x010\x01B*Z(github.com/cilium/cilium/api/v1/dnsproxyb\x06proto3"
 
 var (
 	file_dnsproxy_proto_rawDescOnce sync.Once
@@ -684,26 +683,26 @@ func file_dnsproxy_proto_rawDescGZIP() []byte {
 
 var file_dnsproxy_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_dnsproxy_proto_goTypes = []any{
-	(*Request)(nil),          // 0: dnsproxy.Request
-	(*AzureFQDNMapping)(nil), // 1: dnsproxy.AzureFQDNMapping
-	(*MetricsData)(nil),      // 2: dnsproxy.MetricsData
-	(*ProcessingStats)(nil),  // 3: dnsproxy.ProcessingStats
-	(*DNSResponseData)(nil),  // 4: dnsproxy.DNSResponseData
-	(*Result)(nil),           // 5: dnsproxy.Result
-	(*FQDNSelector)(nil),     // 6: dnsproxy.FQDNSelector
-	(*DNSPolicyRule)(nil),    // 7: dnsproxy.DNSPolicyRule
-	(*DNSPolicyRules)(nil),   // 8: dnsproxy.DNSPolicyRules
+	(*Request)(nil),         // 0: dnsproxy.Request
+	(*FQDNMapping)(nil),     // 1: dnsproxy.FQDNMapping
+	(*MetricsData)(nil),     // 2: dnsproxy.MetricsData
+	(*ProcessingStats)(nil), // 3: dnsproxy.ProcessingStats
+	(*DNSResponseData)(nil), // 4: dnsproxy.DNSResponseData
+	(*Result)(nil),          // 5: dnsproxy.Result
+	(*FQDNSelector)(nil),    // 6: dnsproxy.FQDNSelector
+	(*DNSPolicyRule)(nil),   // 7: dnsproxy.DNSPolicyRule
+	(*DNSPolicyRules)(nil),  // 8: dnsproxy.DNSPolicyRules
 }
 var file_dnsproxy_proto_depIdxs = []int32{
-	2, // 0: dnsproxy.AzureFQDNMapping.metrics:type_name -> dnsproxy.MetricsData
+	2, // 0: dnsproxy.FQDNMapping.metrics:type_name -> dnsproxy.MetricsData
 	3, // 1: dnsproxy.MetricsData.processing_stats:type_name -> dnsproxy.ProcessingStats
 	4, // 2: dnsproxy.MetricsData.dns_response_data:type_name -> dnsproxy.DNSResponseData
 	6, // 3: dnsproxy.DNSPolicyRule.port_rules:type_name -> dnsproxy.FQDNSelector
 	7, // 4: dnsproxy.DNSPolicyRules.rules:type_name -> dnsproxy.DNSPolicyRule
-	0, // 5: dnsproxy.AzureFQDNData.SubscribeToDNSRules:input_type -> dnsproxy.Request
-	1, // 6: dnsproxy.AzureFQDNData.UpdateMappings:input_type -> dnsproxy.AzureFQDNMapping
-	8, // 7: dnsproxy.AzureFQDNData.SubscribeToDNSRules:output_type -> dnsproxy.DNSPolicyRules
-	5, // 8: dnsproxy.AzureFQDNData.UpdateMappings:output_type -> dnsproxy.Result
+	0, // 5: dnsproxy.FQDNData.SubscribeToDNSRules:input_type -> dnsproxy.Request
+	1, // 6: dnsproxy.FQDNData.UpdateMappings:input_type -> dnsproxy.FQDNMapping
+	8, // 7: dnsproxy.FQDNData.SubscribeToDNSRules:output_type -> dnsproxy.DNSPolicyRules
+	5, // 8: dnsproxy.FQDNData.UpdateMappings:output_type -> dnsproxy.Result
 	7, // [7:9] is the sub-list for method output_type
 	5, // [5:7] is the sub-list for method input_type
 	5, // [5:5] is the sub-list for extension type_name

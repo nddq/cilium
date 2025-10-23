@@ -39,6 +39,10 @@ import (
 	pb "github.com/cilium/cilium/api/v1/standalone-dns-proxy"
 )
 
+type azureUnimplementedFQDNDataServer struct {
+	azureDNSProxy.UnimplementedFQDNDataServer
+}
+
 // FQDNDataServer is the server for the standalone DNS proxy grpc server
 // It is responsible for handling the FQDN mapping requests from the SDP
 // and sending the DNS Policy updates to the SDP.
@@ -87,12 +91,12 @@ type FQDNDataServer struct {
 	enabled bool
 
 	// Azure's DNS Proxy fields
-	azureDNSProxy.UnimplementedAzureFQDNDataServer
+	azureUnimplementedFQDNDataServer
 
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	streams lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]
+	streams lock.Map[azureDNSProxy.FQDNData_SubscribeToDNSRulesServer, context.CancelFunc]
 
 	localRules map[uint64]map[restore.PortProto]policy.L7DataMap
 
@@ -185,7 +189,7 @@ func NewServer(endpointManager endpointmanager.EndpointManager, updateOnDNSMsg m
 		// Azure's DNS Proxy fields
 		ctx:               ctx,
 		cancel:            cancel,
-		streams:           lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
+		streams:           lock.Map[azureDNSProxy.FQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
 		localRules:        make(map[uint64]map[restore.PortProto]policy.L7DataMap),
 		proxyAccessLogger: proxyLogger,
 	}
@@ -194,7 +198,7 @@ func NewServer(endpointManager endpointmanager.EndpointManager, updateOnDNSMsg m
 	fqdnDataServer.grpcServer = grpcServer
 	pb.RegisterFQDNDataServer(grpcServer, fqdnDataServer)
 
-	azureDNSProxy.RegisterAzureFQDNDataServer(grpcServer, fqdnDataServer)
+	azureDNSProxy.RegisterFQDNDataServer(grpcServer, fqdnDataServer)
 	return fqdnDataServer
 }
 
@@ -373,7 +377,7 @@ func (s *FQDNDataServer) UpdateSDPAllowed(endpointID uint64, destPortProto resto
 	s.localRules[endpointID][destPortProto] = newRules
 
 	s.log.Debug("Sending Policy updates to sdp", logfields.Rules, dnsPolicyRules)
-	s.streams.Range(func(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, cancel context.CancelFunc) bool {
+	s.streams.Range(func(stream azureDNSProxy.FQDNData_SubscribeToDNSRulesServer, cancel context.CancelFunc) bool {
 		s.log.Debug("Sending update to stream", logfields.Key, stream)
 		if err := stream.Send(dnsPolicyRules); err != nil {
 			s.log.Error("Failed to send update", logfields.Error, err)
@@ -385,7 +389,7 @@ func (s *FQDNDataServer) UpdateSDPAllowed(endpointID uint64, destPortProto resto
 	return nil
 }
 
-func (s *FQDNDataServer) DeleteStream(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer) {
+func (s *FQDNDataServer) DeleteStream(stream azureDNSProxy.FQDNData_SubscribeToDNSRulesServer) {
 	_, ok := s.streams.Load(stream)
 	if ok {
 		s.log.Info("Deleting stream", logfields.Key, stream)
@@ -397,7 +401,7 @@ func (s *FQDNDataServer) DeleteStream(stream azureDNSProxy.AzureFQDNData_Subscri
 
 // SubscribeToDNSRules is the gRPC handler for the SubscribeToDNSRules RPC.
 // SDP will call this method to subscribe to DNS rules.
-func (s *FQDNDataServer) SubscribeToDNSRules(in *azureDNSProxy.Request, stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer) error {
+func (s *FQDNDataServer) SubscribeToDNSRules(in *azureDNSProxy.Request, stream azureDNSProxy.FQDNData_SubscribeToDNSRulesServer) error {
 	streamCtx, cancel := context.WithCancel(stream.Context())
 	s.streams.Store(stream, cancel)
 
@@ -436,7 +440,7 @@ func (s *FQDNDataServer) SubscribeToDNSRules(in *azureDNSProxy.Request, stream a
 
 // cleanupStreams handles the cleanup of streams when the server's context is cancelled.
 func (s *FQDNDataServer) cleanupStreams() {
-	s.streams.Range(func(stream azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, cancelFunc context.CancelFunc) bool {
+	s.streams.Range(func(stream azureDNSProxy.FQDNData_SubscribeToDNSRulesServer, cancelFunc context.CancelFunc) bool {
 		cancelFunc()
 		if closer, ok := stream.(io.Closer); ok {
 			err := closer.Close()
@@ -452,7 +456,7 @@ func (s *FQDNDataServer) cleanupStreams() {
 	s.log.Info("All streams have been cleaned up")
 }
 
-func (s *FQDNDataServer) UpdateMappings(stream azureDNSProxy.AzureFQDNData_UpdateMappingsServer) error {
+func (s *FQDNDataServer) UpdateMappings(stream azureDNSProxy.FQDNData_UpdateMappingsServer) error {
 	s.log.Debug("UpdateMappings stream started")
 	for {
 		select {
@@ -493,7 +497,7 @@ func (s *FQDNDataServer) UpdateMappings(stream azureDNSProxy.AzureFQDNData_Updat
 	}
 }
 
-func (s *FQDNDataServer) sendResponse(stream azureDNSProxy.AzureFQDNData_UpdateMappingsServer, response *azureDNSProxy.Result) error {
+func (s *FQDNDataServer) sendResponse(stream azureDNSProxy.FQDNData_UpdateMappingsServer, response *azureDNSProxy.Result) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -518,7 +522,7 @@ func (s *FQDNDataServer) sendResponse(stream azureDNSProxy.AzureFQDNData_UpdateM
 // 2. If the endpoint is not found, return an error
 // 3. If the IPs are empty, log the request(for hubble to read)
 // 4. If the IPs are not empty, update the cilium agent with the mapping and  log the request(for hubble to read)
-func (s *FQDNDataServer) updateFQDNMapping(mappings *azureDNSProxy.AzureFQDNMapping) error {
+func (s *FQDNDataServer) updateFQDNMapping(mappings *azureDNSProxy.FQDNMapping) error {
 	// The time is ideally from the time we receive the DNS response
 	// but for now we will use the current time when we receive in the server
 	now := time.Now()

@@ -39,8 +39,8 @@ import (
 // is complete, streamResetComplete is used to signal that the stream has been cleaned up.
 type FqdnMappingStreamWrapper struct {
 	fqdnMappingStreamLock   *utils.ErrorAwareLock
-	fqdnMappingStream       pb.AzureFQDNData_UpdateMappingsClient
-	fqdnMappingChannel      chan *pb.AzureFQDNMapping
+	fqdnMappingStream       pb.FQDNData_UpdateMappingsClient
+	fqdnMappingChannel      chan *pb.FQDNMapping
 	fqdnMappingResponseChan lock.Map[uint32, chan *pb.Result]
 	streamResetComplete     chan struct{}
 	streamErrored           atomic.Bool
@@ -58,7 +58,7 @@ const (
 // connectionResetFunction is the function to be called when the connection needs to be closed.
 // triggerFunction is the function to be called when the stream needs to be recreated after closing.
 func NewFqdnMappingStreamWrapper(
-	client pb.AzureFQDNDataClient,
+	client pb.FQDNDataClient,
 	connectionLock *utils.ErrorAwareLock,
 	triggerFunction func(string),
 	connectionCtx context.Context,
@@ -68,7 +68,7 @@ func NewFqdnMappingStreamWrapper(
 	w.log = log // Set logger FIRST before calling any methods that might log
 	w.streamResetComplete = make(chan struct{})
 	w.fqdnMappingStreamLock = utils.NewErrorAwareLock(nil)
-	w.fqdnMappingChannel = make(chan *pb.AzureFQDNMapping)
+	w.fqdnMappingChannel = make(chan *pb.FQDNMapping)
 	w.connectionLock = connectionLock
 	w.streamErrored.Store(false)
 	w.CreateFqdnMappingStreamIfNil(client, connectionCtx, true)
@@ -80,7 +80,7 @@ func NewFqdnMappingStreamWrapper(
 
 // CreateFqdnMappingStreamIfNil creates the FQDN mapping stream if it is nil.
 // It is used at initialization, and also to recreate the stream after errors.
-func (w *FqdnMappingStreamWrapper) CreateFqdnMappingStreamIfNil(client pb.AzureFQDNDataClient, ctx context.Context, initial bool) error {
+func (w *FqdnMappingStreamWrapper) CreateFqdnMappingStreamIfNil(client pb.FQDNDataClient, ctx context.Context, initial bool) error {
 	// Create the FQDN mapping stream
 	if w.fqdnMappingStream == nil {
 		ctx, cancel := context.WithCancel(ctx)
@@ -223,7 +223,7 @@ func (w *FqdnMappingStreamWrapper) ReceiveResponses() {
 
 // AddFqdnMappingToSendChannelAndGetResponse adds the FQDN mapping to the send channel
 // and waits for the response from the cilium agent.
-func (w *FqdnMappingStreamWrapper) AddFqdnMappingToSendChannelAndGetResponse(message *pb.AzureFQDNMapping) error {
+func (w *FqdnMappingStreamWrapper) AddFqdnMappingToSendChannelAndGetResponse(message *pb.FQDNMapping) error {
 	if w.GetStreamErrored() {
 		return fmt.Errorf("stream is errored, cannot send FQDN mapping")
 	}
@@ -269,7 +269,7 @@ func (w *FqdnMappingStreamWrapper) AddFqdnMappingToSendChannelAndGetResponse(mes
 }
 
 // SendFqdnMapping sends the FQDN mapping to the cilium agent.
-func (w *FqdnMappingStreamWrapper) SendFqdnMapping(message *pb.AzureFQDNMapping) error {
+func (w *FqdnMappingStreamWrapper) SendFqdnMapping(message *pb.FQDNMapping) error {
 	err := w.fqdnMappingStream.Send(message)
 	if err != nil {
 		if metrics.FQDNMappingSync != nil {

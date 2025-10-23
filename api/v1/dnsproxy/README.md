@@ -4,17 +4,17 @@
 ## Table of Contents
 
 - [dnsproxy.proto](#dnsproxy-proto)
-    - [AzureFQDNMapping](#dnsproxy-AzureFQDNMapping)
     - [DNSPolicyRule](#dnsproxy-DNSPolicyRule)
     - [DNSPolicyRules](#dnsproxy-DNSPolicyRules)
     - [DNSResponseData](#dnsproxy-DNSResponseData)
+    - [FQDNMapping](#dnsproxy-FQDNMapping)
     - [FQDNSelector](#dnsproxy-FQDNSelector)
     - [MetricsData](#dnsproxy-MetricsData)
     - [ProcessingStats](#dnsproxy-ProcessingStats)
     - [Request](#dnsproxy-Request)
     - [Result](#dnsproxy-Result)
   
-    - [AzureFQDNData](#dnsproxy-AzureFQDNData)
+    - [FQDNData](#dnsproxy-FQDNData)
   
 - [Scalar Value Types](#scalar-value-types)
 
@@ -24,27 +24,6 @@
 <p align="right"><a href="#top">Top</a></p>
 
 ## dnsproxy.proto
-
-
-
-<a name="dnsproxy-AzureFQDNMapping"></a>
-
-### AzureFQDNMapping
-
-
-
-| Field | Type | Label | Description |
-| ----- | ---- | ----- | ----------- |
-| FQDN | [string](#string) |  |  |
-| IPS | [bytes](#bytes) | repeated |  |
-| TTL | [uint32](#uint32) |  |  |
-| client_ip | [bytes](#bytes) |  |  |
-| response_code | [uint32](#uint32) |  |  |
-| metrics | [MetricsData](#dnsproxy-MetricsData) |  |  |
-| request_id | [uint32](#uint32) |  |  |
-
-
-
 
 
 
@@ -96,6 +75,27 @@
 | cnames | [string](#string) | repeated |  |
 | qtypes | [uint32](#uint32) | repeated |  |
 | answer_times | [uint32](#uint32) | repeated |  |
+
+
+
+
+
+
+<a name="dnsproxy-FQDNMapping"></a>
+
+### FQDNMapping
+
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| FQDN | [string](#string) |  |  |
+| IPS | [bytes](#bytes) | repeated |  |
+| TTL | [uint32](#uint32) |  |  |
+| client_ip | [bytes](#bytes) |  |  |
+| response_code | [uint32](#uint32) |  |  |
+| metrics | [MetricsData](#dnsproxy-MetricsData) |  |  |
+| request_id | [uint32](#uint32) |  |  |
 
 
 
@@ -192,15 +192,15 @@
  
 
 
-<a name="dnsproxy-AzureFQDNData"></a>
+<a name="dnsproxy-FQDNData"></a>
 
-### AzureFQDNData
+### FQDNData
 
 
 | Method Name | Request Type | Response Type | Description |
 | ----------- | ------------ | ------------- | ------------|
 | SubscribeToDNSRules | [Request](#dnsproxy-Request) | [DNSPolicyRules](#dnsproxy-DNSPolicyRules) stream |  |
-| UpdateMappings | [AzureFQDNMapping](#dnsproxy-AzureFQDNMapping) stream | [Result](#dnsproxy-Result) stream |  |
+| UpdateMappings | [FQDNMapping](#dnsproxy-FQDNMapping) stream | [Result](#dnsproxy-Result) stream |  |
 
  
 

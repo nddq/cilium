@@ -438,7 +438,7 @@ func TestIsEnabled(t *testing.T) {
 }
 
 type mockSubscribeToDNSRulesServer struct {
-	azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer
+	azureDNSProxy.FQDNData_SubscribeToDNSRulesServer
 	ctx context.Context
 }
 
@@ -452,7 +452,7 @@ func setup(t *testing.T) (*FQDNDataServer, *mockSubscribeToDNSRulesServer, func(
 	s := &FQDNDataServer{
 		log:     hivetest.Logger(t),
 		ctx:     serverCtx,
-		streams: lock.Map[azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
+		streams: lock.Map[azureDNSProxy.FQDNData_SubscribeToDNSRulesServer, context.CancelFunc]{},
 	}
 	clientCtx, clientCancel := context.WithCancel(context.Background())
 	mockStream := &mockSubscribeToDNSRulesServer{
@@ -464,7 +464,7 @@ func setup(t *testing.T) (*FQDNDataServer, *mockSubscribeToDNSRulesServer, func(
 func checkStreamStored(t *testing.T, s *FQDNDataServer, mockStream *mockSubscribeToDNSRulesServer) {
 	// Check if the mockStream was stored in the FQDNDataServer's streams
 	var found bool
-	s.streams.Range(func(key azureDNSProxy.AzureFQDNData_SubscribeToDNSRulesServer, value context.CancelFunc) bool {
+	s.streams.Range(func(key azureDNSProxy.FQDNData_SubscribeToDNSRulesServer, value context.CancelFunc) bool {
 		keyValue := reflect.ValueOf(key)
 		mockStreamValue := reflect.ValueOf(mockStream)
 
