@@ -173,9 +173,10 @@ COPY --from=mariner-fs /bin/gops /bin/gops
 COPY --from=mariner-fs /usr/sbin/alternatives /usr/sbin/alternatives
 COPY --from=mariner-fs /var/lib/alternatives /var/lib/alternatives
 
-## Cat
+## Cat & Uname
 # Required for cilium CLI. Connectivity test will not run without it.
 COPY --from=mariner-fs usr/bin/cat /usr/bin/cat
+COPY --from=mariner-fs usr/bin/uname /usr/bin/uname
 
 #
 # Final Image
