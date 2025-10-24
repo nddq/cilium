@@ -30,6 +30,13 @@ func (igc *GC) startCRDModeGC(ctx context.Context) error {
 		return nil
 	}
 
+	// Don't run GC if CEP is disabled and CEP CRD is not present
+	if option.Config.DisableCiliumEndpointCRD {
+		if !igc.checkForCiliumEndpointCRD(ctx) {
+			return nil
+		}
+	}
+
 	igc.logger.Info("Starting CRD identity garbage collector", logfields.Interval, igc.gcInterval)
 
 	igc.mgr = controller.NewManager()
@@ -224,6 +231,21 @@ func (igc *GC) updateIdentity(ctx context.Context, identity *v2.CiliumIdentity) 
 	igc.logger.Debug("Updated CRD identity", logfields.Identity, identity.GetName())
 
 	return nil
+}
+
+func (igc *GC) checkForCiliumEndpointCRD(ctx context.Context) bool {
+	_, err := igc.k8sClient.ApiextensionsV1().CustomResourceDefinitions().Get(
+		ctx, v2.CEPName, metav1.GetOptions{ResourceVersion: "0"},
+	)
+	if err == nil {
+		return true
+	} else if k8serrors.IsNotFound(err) {
+		igc.logger.Info("CiliumEndpoint CRD cannot be found, skipping CiliumIdentity garbage collection", logfields.Error, err)
+	} else {
+		igc.logger.Error("Unable to determine if CiliumEndpoint CRD is installed, cannot start CiliumIdentity garbage collector",
+			logfields.Error, err)
+	}
+	return false
 }
 
 func usedIdentitiesInCESs(cesStore resource.Store[*v2alpha1.CiliumEndpointSlice]) map[string]bool {
