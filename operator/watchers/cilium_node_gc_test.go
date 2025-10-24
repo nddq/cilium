@@ -18,6 +18,7 @@ import (
 	v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
 	"github.com/cilium/cilium/pkg/k8s/client/clientset/versioned/fake"
 	slim_corev1 "github.com/cilium/cilium/pkg/k8s/slim/k8s/api/core/v1"
+	"github.com/cilium/cilium/pkg/option"
 )
 
 func Test_performCiliumNodeGC(t *testing.T) {
@@ -78,4 +79,60 @@ func Test_performCiliumNodeGC(t *testing.T) {
 	assert.Empty(t, candidateStore.nodesToRemove)
 	_, exists = candidateStore.nodesToRemove["invalid-node"]
 	assert.False(t, exists)
+}
+
+func Test_performCiliumNodeGC_oneOff(t *testing.T) {
+	// save global config and restore at the end of the test
+	prevCiliumNode := option.Config.DisableCiliumNodeCRD
+	option.Config.DisableCiliumNodeCRD = true
+	t.Cleanup(func() {
+		option.Config.DisableCiliumNodeCRD = prevCiliumNode
+	})
+
+	cns := []runtime.Object{
+		&v2.CiliumNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "node-1",
+			},
+		},
+		&v2.CiliumNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "node-2",
+			},
+		},
+		&v2.CiliumNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            "node-3-with-owner-ref",
+				OwnerReferences: []metav1.OwnerReference{{}},
+			},
+		},
+		&v2.CiliumNode{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        "node-4-with-annotation",
+				Annotations: map[string]string{skipGCAnnotationKey: "true"},
+			},
+		},
+	}
+
+	fcn := fake.NewSimpleClientset(cns...).CiliumV2().CiliumNodes()
+	fCNStore := cache.NewStore(cache.MetaNamespaceKeyFunc)
+	for _, cn := range cns {
+		fCNStore.Add(cn)
+	}
+
+	interval := time.Nanosecond
+	fng := &fakeNodeGetter{
+		OnGetK8sSlimNode: func(nodeName string) (*slim_corev1.Node, error) {
+			return &slim_corev1.Node{}, nil
+		},
+	}
+
+	var candidateStore *ciliumNodeGCCandidate
+
+	// check if the invalid node is added to GC candidate
+	err := performCiliumNodeGC(t.Context(), fcn, fCNStore, fng, interval, candidateStore, hivetest.Logger(t))
+	assert.NoError(t, err)
+	nodes, err := fcn.List(t.Context(), metav1.ListOptions{})
+	assert.NoError(t, err)
+	assert.Empty(t, nodes)
 }
