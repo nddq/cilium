@@ -14,7 +14,7 @@ import (
 	"github.com/cilium/cilium/pkg/promise"
 )
 
-type tlsConfigPromise promise.Promise[*certloader.WatchedServerConfig]
+type TLSConfigPromise promise.Promise[*certloader.WatchedServerConfig]
 
 // certloaderGroup provides a promise that can be used to obtain a TLS config
 // capable of automatically sourcing/reloading certificates from disk.
@@ -23,7 +23,7 @@ type tlsConfigPromise promise.Promise[*certloader.WatchedServerConfig]
 // certloader promises. We use a group instead of a module to be able to use
 // cell.ProvidePrivate and avoid providing the promise to the rest of the hive.
 var certloaderGroup = cell.Group(
-	cell.ProvidePrivate(func(lc cell.Lifecycle, jobGroup job.Group, log *slog.Logger, cfg certloaderConfig) (tlsConfigPromise, error) {
+	cell.ProvidePrivate(func(lc cell.Lifecycle, jobGroup job.Group, log *slog.Logger, cfg certloaderConfig) (TLSConfigPromise, error) {
 		config := certloader.Config{
 			TLS:              !cfg.DisableServerTLS,
 			TLSCertFile:      cfg.TLSCertFile,

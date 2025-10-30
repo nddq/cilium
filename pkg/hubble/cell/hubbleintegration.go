@@ -77,7 +77,7 @@ type hubbleIntegration struct {
 	nodeLocalStore    *node.LocalNodeStore
 	monitorAgent      monitorAgent.Agent
 	recorder          *recorder.Recorder
-	tlsConfigPromise  tlsConfigPromise
+	tlsConfigPromise  TLSConfigPromise
 	exporters         []exporter.FlowLogExporter
 
 	// payloadParser is used to decode monitor events into Hubble events.
@@ -105,7 +105,7 @@ func new(
 	nodeLocalStore *node.LocalNodeStore,
 	monitorAgent monitorAgent.Agent,
 	recorder *recorder.Recorder,
-	tlsConfigPromise tlsConfigPromise,
+	tlsConfigPromise TLSConfigPromise,
 	observerOptions []observeroption.Option,
 	exporterBuilders []*exportercell.FlowLogExporterBuilder,
 	payloadParser parser.Decoder,

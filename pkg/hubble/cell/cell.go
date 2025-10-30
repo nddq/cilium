@@ -80,7 +80,7 @@ type hubbleParams struct {
 	MonitorAgent      monitorAgent.Agent
 	Recorder          *recorder.Recorder
 
-	TLSConfigPromise tlsConfigPromise
+	TLSConfigPromise TLSConfigPromise
 
 	// NOTE: ordering is not guaranteed, do not rely on it.
 	ObserverOptions  []observeroption.Option                `group:"hubble-observer-options"`
