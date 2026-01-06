@@ -17,6 +17,7 @@ ubuntuPackages=(
   ipset
   kmod
   ca-certificates
+  libatomic1
 )
 
 marinerPackages=(
