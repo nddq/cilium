@@ -1937,6 +1937,8 @@ hubble:
       # - source
       # - destination
       # - verdict
+      fieldAggregate: []
+      aggregationInterval: "0s"
       allowList: []
       # - '{"verdict":["DROPPED","ERROR"]}'
       denyList: []
@@ -1962,6 +1964,8 @@ hubble:
         content:
           - name: all
             fieldMask: []
+            fieldAggregate: []
+            aggregationInterval: "0s"
             includeFilters: []
             excludeFilters: []
             filePath: "/var/run/cilium/hubble/events.log"
@@ -1970,6 +1974,7 @@ hubble:
             fileCompress: false
             #   - name: "test002"
             #     filePath: "/var/log/network/flow-log/pa/test002.log"
+            #     fieldAggregate: ["source.namespace", "source.pod_name", "destination.namespace", "destination.pod_name", "verdict"]
             #     fieldMask: ["source.namespace", "source.pod_name", "destination.namespace", "destination.pod_name", "verdict"]
             #     includeFilters:
             #     - source_pod: ["default/"]

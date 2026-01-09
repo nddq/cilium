@@ -70,6 +70,42 @@ func TestCompareFlowLogConfigs(t *testing.T) {
 			expectEqual:   false,
 		},
 		{
+			name:          "should equal for same fieldaggregate",
+			currentConfig: &FlowLogConfig{FieldAggregate: []string{"source.ip", "destination.ip"}},
+			newConfig:     &FlowLogConfig{FieldAggregate: []string{"source.ip", "destination.ip"}},
+			expectEqual:   true,
+		},
+		{
+			name:          "should equal for same fieldaggregate in different order",
+			currentConfig: &FlowLogConfig{FieldAggregate: []string{"source.ip", "destination.ip"}},
+			newConfig:     &FlowLogConfig{FieldAggregate: []string{"destination.ip", "source.ip"}},
+			expectEqual:   true,
+		},
+		{
+			name:          "should not equal for different fieldaggregate",
+			currentConfig: &FlowLogConfig{FieldAggregate: []string{"source.ip", "destination.ip"}},
+			newConfig:     &FlowLogConfig{FieldAggregate: []string{"source.port", "destination.ip"}},
+			expectEqual:   false,
+		},
+		{
+			name:          "should equal for same aggregation interval",
+			currentConfig: &FlowLogConfig{AggregationInterval: Duration(time.Minute)},
+			newConfig:     &FlowLogConfig{AggregationInterval: Duration(time.Minute)},
+			expectEqual:   true,
+		},
+		{
+			name:          "should not equal for different aggregation interval",
+			currentConfig: &FlowLogConfig{AggregationInterval: Duration(time.Minute)},
+			newConfig:     &FlowLogConfig{AggregationInterval: Duration(time.Second * 30)},
+			expectEqual:   false,
+		},
+		{
+			name:          "should equal for zero aggregation interval",
+			currentConfig: &FlowLogConfig{AggregationInterval: Duration(0)},
+			newConfig:     &FlowLogConfig{AggregationInterval: Duration(0)},
+			expectEqual:   true,
+		},
+		{
 			name: "should equal for same include filters in different order",
 			currentConfig: &FlowLogConfig{IncludeFilters: FlowFilters{
 				{
@@ -300,23 +336,27 @@ func TestYamlConfigFileUnmarshalling(t *testing.T) {
 	assert.NoError(t, err)
 
 	// then
-	assert.Len(t, configs, 3)
+	assert.Len(t, configs, 5)
 
 	expectedDate := time.Date(2023, 10, 9, 23, 59, 59, 0, time.FixedZone("", -7*60*60))
 
 	expectedConfigs := []FlowLogConfig{
 		{
-			Name:           "test001",
-			FilePath:       "/var/log/network/flow-log/pa/test001.log",
-			FieldMask:      FieldMask{},
-			IncludeFilters: FlowFilters{},
-			ExcludeFilters: FlowFilters{},
-			End:            &expectedDate,
+			Name:                "test001",
+			FilePath:            "/var/log/network/flow-log/pa/test001.log",
+			FieldMask:           FieldMask{},
+			FieldAggregate:      FieldAggregate{},
+			AggregationInterval: Duration(0),
+			IncludeFilters:      FlowFilters{},
+			ExcludeFilters:      FlowFilters{},
+			End:                 &expectedDate,
 		},
 		{
-			Name:      "test002",
-			FilePath:  "/var/log/network/flow-log/pa/test002.log",
-			FieldMask: FieldMask{"source.namespace", "source.pod_name", "destination.namespace", "destination.pod_name", "verdict"},
+			Name:                "test002",
+			FilePath:            "/var/log/network/flow-log/pa/test002.log",
+			FieldMask:           FieldMask{"source.namespace", "source.pod_name", "destination.namespace", "destination.pod_name", "verdict"},
+			FieldAggregate:      FieldAggregate{},
+			AggregationInterval: Duration(0),
 			IncludeFilters: FlowFilters{
 				{
 					SourcePod:   []string{"default/"},
@@ -336,10 +376,46 @@ func TestYamlConfigFileUnmarshalling(t *testing.T) {
 			End:            &expectedDate,
 		},
 		{
-			Name:           "test003",
-			FilePath:       "/var/log/network/flow-log/pa/test003.log",
-			FieldMask:      FieldMask{"source", "destination", "verdict"},
-			IncludeFilters: FlowFilters{},
+			Name:                "test003",
+			FilePath:            "/var/log/network/flow-log/pa/test003.log",
+			FieldMask:           FieldMask{"source", "destination", "verdict"},
+			FieldAggregate:      FieldAggregate{},
+			AggregationInterval: Duration(0),
+			IncludeFilters:      FlowFilters{},
+			ExcludeFilters: FlowFilters{
+				{
+					DestinationPod: []string{"ingress/"},
+				},
+			},
+			FileMaxSizeMB:  0,
+			FileMaxBackups: 0,
+			FileCompress:   false,
+			End:            nil,
+		},
+		{
+			Name:                "test004",
+			FilePath:            "/var/log/network/flow-log/pa/test004.log",
+			FieldMask:           FieldMask{"source", "destination", "verdict"},
+			FieldAggregate:      FieldAggregate{"source", "destination", "verdict"},
+			AggregationInterval: Duration(30 * time.Second),
+			IncludeFilters:      FlowFilters{},
+			ExcludeFilters: FlowFilters{
+				{
+					DestinationPod: []string{"ingress/"},
+				},
+			},
+			FileMaxSizeMB:  0,
+			FileMaxBackups: 0,
+			FileCompress:   false,
+			End:            nil,
+		},
+		{
+			Name:                "test005",
+			FilePath:            "/var/log/network/flow-log/pa/test005.log",
+			FieldMask:           FieldMask{},
+			FieldAggregate:      FieldAggregate{"source", "destination", "verdict"},
+			AggregationInterval: Duration(time.Minute),
+			IncludeFilters:      FlowFilters{},
 			ExcludeFilters: FlowFilters{
 				{
 					DestinationPod: []string{"ingress/"},

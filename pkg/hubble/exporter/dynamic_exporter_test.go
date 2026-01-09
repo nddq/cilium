@@ -32,7 +32,7 @@ func TestDynamicExporterLifecycle(t *testing.T) {
 	dynamicExporter := NewDynamicExporter(logger, fileName, exporterFactory, exporterConfigParser)
 
 	// then
-	assert.Len(t, dynamicExporter.managedExporters, 3)
+	assert.Len(t, dynamicExporter.managedExporters, 5)
 	for _, v := range dynamicExporter.managedExporters {
 		exp := v.exporter.(*exporter)
 		assert.NotNil(t, exp.writer, "each individual exporter should be configured (writer != nil)")
@@ -42,7 +42,7 @@ func TestDynamicExporterLifecycle(t *testing.T) {
 	assert.NoError(t, dynamicExporter.Stop())
 
 	// then
-	assert.Len(t, dynamicExporter.managedExporters, 3)
+	assert.Len(t, dynamicExporter.managedExporters, 5)
 	for _, v := range dynamicExporter.managedExporters {
 		exp := v.exporter.(*exporter)
 		assert.Nil(t, exp.writer, "each individual exporter should be stopped (writer == nil)")

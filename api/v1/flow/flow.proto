@@ -145,6 +145,10 @@ message Flow {
     // this list is empty. Duplicate values are elided; each
     // entry is unique.
     repeated string policy_log = 21006;
+
+    // Aggregate contains flow aggregation counters when flow aggregation is enabled.
+    // This field is only populated for aggregated flows.
+    Aggregate aggregate = 21007;
 }
 
 enum FlowType {
@@ -949,4 +953,16 @@ enum DebugEventType {
     DBG_SK_ASSIGN = 64;
     DBG_L7_LB = 65;
     DBG_SKIP_POLICY = 66;
+}
+
+// Aggregate contains flow aggregation counters
+message Aggregate {
+    // ingress_flow_count is the count of flows in the ingress direction
+    uint32 ingress_flow_count = 1;
+
+    // egress_flow_count is the count of flows in the egress direction  
+    uint32 egress_flow_count = 2;
+
+    // unknown_direction_flow_count is the count of flows with unknown traffic direction
+    uint32 unknown_direction_flow_count = 3;
 }

@@ -1539,7 +1539,10 @@ type Flow struct {
 	// If no matched policies have an explicit log value configured,
 	// this list is empty. Duplicate values are elided; each
 	// entry is unique.
-	PolicyLog     []string `protobuf:"bytes,21006,rep,name=policy_log,json=policyLog,proto3" json:"policy_log,omitempty"`
+	PolicyLog []string `protobuf:"bytes,21006,rep,name=policy_log,json=policyLog,proto3" json:"policy_log,omitempty"`
+	// Aggregate contains flow aggregation counters when flow aggregation is enabled.
+	// This field is only populated for aggregated flows.
+	Aggregate     *Aggregate `protobuf:"bytes,21007,opt,name=aggregate,proto3" json:"aggregate,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1867,6 +1870,13 @@ func (x *Flow) GetIngressDeniedBy() []*Policy {
 func (x *Flow) GetPolicyLog() []string {
 	if x != nil {
 		return x.PolicyLog
+	}
+	return nil
+}
+
+func (x *Flow) GetAggregate() *Aggregate {
+	if x != nil {
+		return x.Aggregate
 	}
 	return nil
 }
@@ -4981,6 +4991,70 @@ func (x *DebugEvent) GetCpu() *wrapperspb.Int32Value {
 	return nil
 }
 
+// Aggregate contains flow aggregation counters
+type Aggregate struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// ingress_flow_count is the count of flows in the ingress direction
+	IngressFlowCount uint32 `protobuf:"varint,1,opt,name=ingress_flow_count,json=ingressFlowCount,proto3" json:"ingress_flow_count,omitempty"`
+	// egress_flow_count is the count of flows in the egress direction
+	EgressFlowCount uint32 `protobuf:"varint,2,opt,name=egress_flow_count,json=egressFlowCount,proto3" json:"egress_flow_count,omitempty"`
+	// unknown_direction_flow_count is the count of flows with unknown traffic direction
+	UnknownDirectionFlowCount uint32 `protobuf:"varint,3,opt,name=unknown_direction_flow_count,json=unknownDirectionFlowCount,proto3" json:"unknown_direction_flow_count,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
+}
+
+func (x *Aggregate) Reset() {
+	*x = Aggregate{}
+	mi := &file_flow_flow_proto_msgTypes[39]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Aggregate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Aggregate) ProtoMessage() {}
+
+func (x *Aggregate) ProtoReflect() protoreflect.Message {
+	mi := &file_flow_flow_proto_msgTypes[39]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Aggregate.ProtoReflect.Descriptor instead.
+func (*Aggregate) Descriptor() ([]byte, []int) {
+	return file_flow_flow_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *Aggregate) GetIngressFlowCount() uint32 {
+	if x != nil {
+		return x.IngressFlowCount
+	}
+	return 0
+}
+
+func (x *Aggregate) GetEgressFlowCount() uint32 {
+	if x != nil {
+		return x.EgressFlowCount
+	}
+	return 0
+}
+
+func (x *Aggregate) GetUnknownDirectionFlowCount() uint32 {
+	if x != nil {
+		return x.UnknownDirectionFlowCount
+	}
+	return 0
+}
+
 // Experimental contains filters that are not stable yet. Support for
 // experimental features is always optional and subject to change.
 type FlowFilter_Experimental struct {
@@ -5001,7 +5075,7 @@ type FlowFilter_Experimental struct {
 
 func (x *FlowFilter_Experimental) Reset() {
 	*x = FlowFilter_Experimental{}
-	mi := &file_flow_flow_proto_msgTypes[39]
+	mi := &file_flow_flow_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5013,7 +5087,7 @@ func (x *FlowFilter_Experimental) String() string {
 func (*FlowFilter_Experimental) ProtoMessage() {}
 
 func (x *FlowFilter_Experimental) ProtoReflect() protoreflect.Message {
-	mi := &file_flow_flow_proto_msgTypes[39]
+	mi := &file_flow_flow_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5040,7 +5114,7 @@ var File_flow_flow_proto protoreflect.FileDescriptor
 
 const file_flow_flow_proto_rawDesc = "" +
 	"\n" +
-	"\x0fflow/flow.proto\x12\x04flow\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb4\x0f\n" +
+	"\x0fflow/flow.proto\x12\x04flow\x1a\x19google/protobuf/any.proto\x1a\x1egoogle/protobuf/wrappers.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xe5\x0f\n" +
 	"\x04Flow\x12.\n" +
 	"\x04time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\x04time\x12\x12\n" +
 	"\x04uuid\x18\" \x01(\tR\x04uuid\x12'\n" +
@@ -5091,7 +5165,8 @@ const file_flow_flow_proto_rawDesc = "" +
 	"\x10egress_denied_by\x18\x8c\xa4\x01 \x03(\v2\f.flow.PolicyR\x0eegressDeniedBy\x12:\n" +
 	"\x11ingress_denied_by\x18\x8d\xa4\x01 \x03(\v2\f.flow.PolicyR\x0fingressDeniedBy\x12\x1f\n" +
 	"\n" +
-	"policy_log\x18\x8e\xa4\x01 \x03(\tR\tpolicyLogJ\x04\b\a\x10\bJ\x04\b\f\x10\rJ\x04\b\x11\x10\x12J\x04\b\x12\x10\x13\"2\n" +
+	"policy_log\x18\x8e\xa4\x01 \x03(\tR\tpolicyLog\x12/\n" +
+	"\taggregate\x18\x8f\xa4\x01 \x01(\v2\x0f.flow.AggregateR\taggregateJ\x04\b\a\x10\bJ\x04\b\f\x10\rJ\x04\b\x11\x10\x12J\x04\b\x12\x10\x13\"2\n" +
 	"\bFileInfo\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04line\x18\x02 \x01(\rR\x04line\"\xc4\x01\n" +
@@ -5344,7 +5419,11 @@ const file_flow_flow_proto_rawDesc = "" +
 	"\x04arg2\x18\x05 \x01(\v2\x1c.google.protobuf.UInt32ValueR\x04arg2\x120\n" +
 	"\x04arg3\x18\x06 \x01(\v2\x1c.google.protobuf.UInt32ValueR\x04arg3\x12\x18\n" +
 	"\amessage\x18\a \x01(\tR\amessage\x12-\n" +
-	"\x03cpu\x18\b \x01(\v2\x1b.google.protobuf.Int32ValueR\x03cpu*9\n" +
+	"\x03cpu\x18\b \x01(\v2\x1b.google.protobuf.Int32ValueR\x03cpu\"\xa6\x01\n" +
+	"\tAggregate\x12,\n" +
+	"\x12ingress_flow_count\x18\x01 \x01(\rR\x10ingressFlowCount\x12*\n" +
+	"\x11egress_flow_count\x18\x02 \x01(\rR\x0fegressFlowCount\x12?\n" +
+	"\x1cunknown_direction_flow_count\x18\x03 \x01(\rR\x19unknownDirectionFlowCount*9\n" +
 	"\bFlowType\x12\x10\n" +
 	"\fUNKNOWN_TYPE\x10\x00\x12\t\n" +
 	"\x05L3_L4\x10\x01\x12\x06\n" +
@@ -5620,7 +5699,7 @@ func file_flow_flow_proto_rawDescGZIP() []byte {
 }
 
 var file_flow_flow_proto_enumTypes = make([]protoimpl.EnumInfo, 16)
-var file_flow_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
+var file_flow_flow_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_flow_flow_proto_goTypes = []any{
 	(FlowType)(0),                         // 0: flow.FlowType
 	(AuthType)(0),                         // 1: flow.AuthType
@@ -5677,15 +5756,16 @@ var file_flow_flow_proto_goTypes = []any{
 	(*ServiceDeleteNotification)(nil),     // 52: flow.ServiceDeleteNotification
 	(*NetworkInterface)(nil),              // 53: flow.NetworkInterface
 	(*DebugEvent)(nil),                    // 54: flow.DebugEvent
-	(*FlowFilter_Experimental)(nil),       // 55: flow.FlowFilter.Experimental
-	(*timestamppb.Timestamp)(nil),         // 56: google.protobuf.Timestamp
-	(*wrapperspb.BoolValue)(nil),          // 57: google.protobuf.BoolValue
-	(*anypb.Any)(nil),                     // 58: google.protobuf.Any
-	(*wrapperspb.Int32Value)(nil),         // 59: google.protobuf.Int32Value
-	(*wrapperspb.UInt32Value)(nil),        // 60: google.protobuf.UInt32Value
+	(*Aggregate)(nil),                     // 55: flow.Aggregate
+	(*FlowFilter_Experimental)(nil),       // 56: flow.FlowFilter.Experimental
+	(*timestamppb.Timestamp)(nil),         // 57: google.protobuf.Timestamp
+	(*wrapperspb.BoolValue)(nil),          // 58: google.protobuf.BoolValue
+	(*anypb.Any)(nil),                     // 59: google.protobuf.Any
+	(*wrapperspb.Int32Value)(nil),         // 60: google.protobuf.Int32Value
+	(*wrapperspb.UInt32Value)(nil),        // 61: google.protobuf.UInt32Value
 }
 var file_flow_flow_proto_depIdxs = []int32{
-	56, // 0: flow.Flow.time:type_name -> google.protobuf.Timestamp
+	57, // 0: flow.Flow.time:type_name -> google.protobuf.Timestamp
 	6,  // 1: flow.Flow.verdict:type_name -> flow.Verdict
 	1,  // 2: flow.Flow.auth_type:type_name -> flow.AuthType
 	26, // 3: flow.Flow.ethernet:type_name -> flow.Ethernet
@@ -5704,71 +5784,72 @@ var file_flow_flow_proto_depIdxs = []int32{
 	3,  // 16: flow.Flow.trace_reason:type_name -> flow.TraceReason
 	17, // 17: flow.Flow.file:type_name -> flow.FileInfo
 	7,  // 18: flow.Flow.drop_reason_desc:type_name -> flow.DropReason
-	57, // 19: flow.Flow.is_reply:type_name -> google.protobuf.BoolValue
+	58, // 19: flow.Flow.is_reply:type_name -> google.protobuf.BoolValue
 	9,  // 20: flow.Flow.debug_capture_point:type_name -> flow.DebugCapturePoint
 	53, // 21: flow.Flow.interface:type_name -> flow.NetworkInterface
 	20, // 22: flow.Flow.trace_context:type_name -> flow.TraceContext
 	13, // 23: flow.Flow.sock_xlate_point:type_name -> flow.SocketTranslationPoint
-	58, // 24: flow.Flow.extensions:type_name -> google.protobuf.Any
+	59, // 24: flow.Flow.extensions:type_name -> google.protobuf.Any
 	33, // 25: flow.Flow.egress_allowed_by:type_name -> flow.Policy
 	33, // 26: flow.Flow.ingress_allowed_by:type_name -> flow.Policy
 	33, // 27: flow.Flow.egress_denied_by:type_name -> flow.Policy
 	33, // 28: flow.Flow.ingress_denied_by:type_name -> flow.Policy
-	24, // 29: flow.Layer4.TCP:type_name -> flow.TCP
-	28, // 30: flow.Layer4.UDP:type_name -> flow.UDP
-	30, // 31: flow.Layer4.ICMPv4:type_name -> flow.ICMPv4
-	31, // 32: flow.Layer4.ICMPv6:type_name -> flow.ICMPv6
-	29, // 33: flow.Layer4.SCTP:type_name -> flow.SCTP
-	4,  // 34: flow.Layer7.type:type_name -> flow.L7FlowType
-	37, // 35: flow.Layer7.dns:type_name -> flow.DNS
-	39, // 36: flow.Layer7.http:type_name -> flow.HTTP
-	40, // 37: flow.Layer7.kafka:type_name -> flow.Kafka
-	21, // 38: flow.TraceContext.parent:type_name -> flow.TraceParent
-	23, // 39: flow.Endpoint.workloads:type_name -> flow.Workload
-	27, // 40: flow.TCP.flags:type_name -> flow.TCPFlags
-	5,  // 41: flow.IP.ipVersion:type_name -> flow.IPVersion
-	15, // 42: flow.Tunnel.protocol:type_name -> flow.Tunnel.Protocol
-	25, // 43: flow.Tunnel.IP:type_name -> flow.IP
-	18, // 44: flow.Tunnel.l4:type_name -> flow.Layer4
-	23, // 45: flow.FlowFilter.source_workload:type_name -> flow.Workload
-	23, // 46: flow.FlowFilter.destination_workload:type_name -> flow.Workload
-	8,  // 47: flow.FlowFilter.traffic_direction:type_name -> flow.TrafficDirection
-	6,  // 48: flow.FlowFilter.verdict:type_name -> flow.Verdict
-	7,  // 49: flow.FlowFilter.drop_reason_desc:type_name -> flow.DropReason
-	53, // 50: flow.FlowFilter.interface:type_name -> flow.NetworkInterface
-	34, // 51: flow.FlowFilter.event_type:type_name -> flow.EventTypeFilter
-	38, // 52: flow.FlowFilter.http_header:type_name -> flow.HTTPHeader
-	27, // 53: flow.FlowFilter.tcp_flags:type_name -> flow.TCPFlags
-	5,  // 54: flow.FlowFilter.ip_version:type_name -> flow.IPVersion
-	55, // 55: flow.FlowFilter.experimental:type_name -> flow.FlowFilter.Experimental
-	38, // 56: flow.HTTP.headers:type_name -> flow.HTTPHeader
-	11, // 57: flow.LostEvent.source:type_name -> flow.LostEventSource
-	59, // 58: flow.LostEvent.cpu:type_name -> google.protobuf.Int32Value
-	12, // 59: flow.AgentEvent.type:type_name -> flow.AgentEventType
-	44, // 60: flow.AgentEvent.unknown:type_name -> flow.AgentEventUnknown
-	45, // 61: flow.AgentEvent.agent_start:type_name -> flow.TimeNotification
-	46, // 62: flow.AgentEvent.policy_update:type_name -> flow.PolicyUpdateNotification
-	47, // 63: flow.AgentEvent.endpoint_regenerate:type_name -> flow.EndpointRegenNotification
-	48, // 64: flow.AgentEvent.endpoint_update:type_name -> flow.EndpointUpdateNotification
-	49, // 65: flow.AgentEvent.ipcache_update:type_name -> flow.IPCacheNotification
-	51, // 66: flow.AgentEvent.service_upsert:type_name -> flow.ServiceUpsertNotification
-	52, // 67: flow.AgentEvent.service_delete:type_name -> flow.ServiceDeleteNotification
-	56, // 68: flow.TimeNotification.time:type_name -> google.protobuf.Timestamp
-	60, // 69: flow.IPCacheNotification.old_identity:type_name -> google.protobuf.UInt32Value
-	50, // 70: flow.ServiceUpsertNotification.frontend_address:type_name -> flow.ServiceUpsertNotificationAddr
-	50, // 71: flow.ServiceUpsertNotification.backend_addresses:type_name -> flow.ServiceUpsertNotificationAddr
-	14, // 72: flow.DebugEvent.type:type_name -> flow.DebugEventType
-	22, // 73: flow.DebugEvent.source:type_name -> flow.Endpoint
-	60, // 74: flow.DebugEvent.hash:type_name -> google.protobuf.UInt32Value
-	60, // 75: flow.DebugEvent.arg1:type_name -> google.protobuf.UInt32Value
-	60, // 76: flow.DebugEvent.arg2:type_name -> google.protobuf.UInt32Value
-	60, // 77: flow.DebugEvent.arg3:type_name -> google.protobuf.UInt32Value
-	59, // 78: flow.DebugEvent.cpu:type_name -> google.protobuf.Int32Value
-	79, // [79:79] is the sub-list for method output_type
-	79, // [79:79] is the sub-list for method input_type
-	79, // [79:79] is the sub-list for extension type_name
-	79, // [79:79] is the sub-list for extension extendee
-	0,  // [0:79] is the sub-list for field type_name
+	55, // 29: flow.Flow.aggregate:type_name -> flow.Aggregate
+	24, // 30: flow.Layer4.TCP:type_name -> flow.TCP
+	28, // 31: flow.Layer4.UDP:type_name -> flow.UDP
+	30, // 32: flow.Layer4.ICMPv4:type_name -> flow.ICMPv4
+	31, // 33: flow.Layer4.ICMPv6:type_name -> flow.ICMPv6
+	29, // 34: flow.Layer4.SCTP:type_name -> flow.SCTP
+	4,  // 35: flow.Layer7.type:type_name -> flow.L7FlowType
+	37, // 36: flow.Layer7.dns:type_name -> flow.DNS
+	39, // 37: flow.Layer7.http:type_name -> flow.HTTP
+	40, // 38: flow.Layer7.kafka:type_name -> flow.Kafka
+	21, // 39: flow.TraceContext.parent:type_name -> flow.TraceParent
+	23, // 40: flow.Endpoint.workloads:type_name -> flow.Workload
+	27, // 41: flow.TCP.flags:type_name -> flow.TCPFlags
+	5,  // 42: flow.IP.ipVersion:type_name -> flow.IPVersion
+	15, // 43: flow.Tunnel.protocol:type_name -> flow.Tunnel.Protocol
+	25, // 44: flow.Tunnel.IP:type_name -> flow.IP
+	18, // 45: flow.Tunnel.l4:type_name -> flow.Layer4
+	23, // 46: flow.FlowFilter.source_workload:type_name -> flow.Workload
+	23, // 47: flow.FlowFilter.destination_workload:type_name -> flow.Workload
+	8,  // 48: flow.FlowFilter.traffic_direction:type_name -> flow.TrafficDirection
+	6,  // 49: flow.FlowFilter.verdict:type_name -> flow.Verdict
+	7,  // 50: flow.FlowFilter.drop_reason_desc:type_name -> flow.DropReason
+	53, // 51: flow.FlowFilter.interface:type_name -> flow.NetworkInterface
+	34, // 52: flow.FlowFilter.event_type:type_name -> flow.EventTypeFilter
+	38, // 53: flow.FlowFilter.http_header:type_name -> flow.HTTPHeader
+	27, // 54: flow.FlowFilter.tcp_flags:type_name -> flow.TCPFlags
+	5,  // 55: flow.FlowFilter.ip_version:type_name -> flow.IPVersion
+	56, // 56: flow.FlowFilter.experimental:type_name -> flow.FlowFilter.Experimental
+	38, // 57: flow.HTTP.headers:type_name -> flow.HTTPHeader
+	11, // 58: flow.LostEvent.source:type_name -> flow.LostEventSource
+	60, // 59: flow.LostEvent.cpu:type_name -> google.protobuf.Int32Value
+	12, // 60: flow.AgentEvent.type:type_name -> flow.AgentEventType
+	44, // 61: flow.AgentEvent.unknown:type_name -> flow.AgentEventUnknown
+	45, // 62: flow.AgentEvent.agent_start:type_name -> flow.TimeNotification
+	46, // 63: flow.AgentEvent.policy_update:type_name -> flow.PolicyUpdateNotification
+	47, // 64: flow.AgentEvent.endpoint_regenerate:type_name -> flow.EndpointRegenNotification
+	48, // 65: flow.AgentEvent.endpoint_update:type_name -> flow.EndpointUpdateNotification
+	49, // 66: flow.AgentEvent.ipcache_update:type_name -> flow.IPCacheNotification
+	51, // 67: flow.AgentEvent.service_upsert:type_name -> flow.ServiceUpsertNotification
+	52, // 68: flow.AgentEvent.service_delete:type_name -> flow.ServiceDeleteNotification
+	57, // 69: flow.TimeNotification.time:type_name -> google.protobuf.Timestamp
+	61, // 70: flow.IPCacheNotification.old_identity:type_name -> google.protobuf.UInt32Value
+	50, // 71: flow.ServiceUpsertNotification.frontend_address:type_name -> flow.ServiceUpsertNotificationAddr
+	50, // 72: flow.ServiceUpsertNotification.backend_addresses:type_name -> flow.ServiceUpsertNotificationAddr
+	14, // 73: flow.DebugEvent.type:type_name -> flow.DebugEventType
+	22, // 74: flow.DebugEvent.source:type_name -> flow.Endpoint
+	61, // 75: flow.DebugEvent.hash:type_name -> google.protobuf.UInt32Value
+	61, // 76: flow.DebugEvent.arg1:type_name -> google.protobuf.UInt32Value
+	61, // 77: flow.DebugEvent.arg2:type_name -> google.protobuf.UInt32Value
+	61, // 78: flow.DebugEvent.arg3:type_name -> google.protobuf.UInt32Value
+	60, // 79: flow.DebugEvent.cpu:type_name -> google.protobuf.Int32Value
+	80, // [80:80] is the sub-list for method output_type
+	80, // [80:80] is the sub-list for method input_type
+	80, // [80:80] is the sub-list for extension type_name
+	80, // [80:80] is the sub-list for extension extendee
+	0,  // [0:80] is the sub-list for field type_name
 }
 
 func init() { file_flow_flow_proto_init() }
@@ -5804,7 +5885,7 @@ func file_flow_flow_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_flow_flow_proto_rawDesc), len(file_flow_flow_proto_rawDesc)),
 			NumEnums:      16,
-			NumMessages:   40,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -1042,8 +1042,10 @@ data:
   hubble-export-file-compress: {{ .Values.hubble.export.fileCompress | default .Values.hubble.export.static.fileCompress | quote }}
   hubble-export-file-path: {{ .Values.hubble.export.static.filePath | quote }}
   hubble-export-fieldmask: {{ .Values.hubble.export.static.fieldMask | join " " | quote }}
-  hubble-export-allowlist: {{ .Values.hubble.export.static.allowList | join " " | quote }}
-  hubble-export-denylist: {{ .Values.hubble.export.static.denyList | join " " | quote }}
+  hubble-export-fieldaggregate: {{ .Values.hubble.export.static.fieldAggregate | join " " | quote }}
+  hubble-export-aggregation-interval: {{ include "validateDuration" .Values.hubble.export.static.aggregationInterval | quote }}
+  hubble-export-allowlist: {{ .Values.hubble.export.static.allowList | join "" | quote }}
+  hubble-export-denylist: {{ .Values.hubble.export.static.denyList | join "" | quote }}
 {{- end }}
 {{- if .Values.hubble.export.dynamic.enabled }}
   hubble-flowlogs-config-path: /flowlog-config/flowlogs.yaml
