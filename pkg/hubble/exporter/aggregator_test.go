@@ -253,6 +253,87 @@ func TestAggregateAdd(t *testing.T) {
 		assert.Equal(t, 0, value.UnknownDirectionFlowCount)
 		assert.NotNil(t, value.ProcessedFlow)
 	})
+
+	t.Run("oneof field mask with mixed protocols", func(t *testing.T) {
+		defer testutils.GoleakVerifyNone(t)
+
+		// Test that field mask correctly handles oneof variants (e.g., TCP vs UDP, HTTP vs DNS),
+		// when multiple variants are specified in the field mask.
+
+		exporter, _ := testExporterWithAggregation(t, 10*time.Second, []string{
+			"source.namespace",
+			"l4.TCP.destination_port",
+			"l4.UDP.destination_port", // Both TCP and UDP specified.
+			"l7.http.code",
+			"l7.dns.rcode", // Both HTTP and DNS specified.
+		})
+		defer exporter.Stop()
+
+		// Create 2 identical TCP+HTTP flows.
+		flow1 := &flowpb.Flow{
+			Source: &flowpb.Endpoint{Namespace: "default"},
+			L4: &flowpb.Layer4{
+				Protocol: &flowpb.Layer4_TCP{
+					TCP: &flowpb.TCP{
+						SourcePort:      33001,
+						DestinationPort: 443,
+					},
+				},
+			},
+			L7: &flowpb.Layer7{
+				Type: flowpb.L7FlowType_RESPONSE,
+				Record: &flowpb.Layer7_Http{
+					Http: &flowpb.HTTP{
+						Code: 200,
+					},
+				},
+			},
+		}
+
+		flow2 := &flowpb.Flow{
+			Source: &flowpb.Endpoint{Namespace: "default"},
+			L4: &flowpb.Layer4{
+				Protocol: &flowpb.Layer4_TCP{
+					TCP: &flowpb.TCP{
+						SourcePort:      33002, // Different source port (not in mask).
+						DestinationPort: 443,
+					},
+				},
+			},
+			L7: &flowpb.Layer7{
+				Type: flowpb.L7FlowType_RESPONSE,
+				Record: &flowpb.Layer7_Http{
+					Http: &flowpb.HTTP{
+						Code: 200,
+					},
+				},
+			},
+		}
+
+		event1 := &v1.Event{Event: flow1, Timestamp: timestamp.Now()}
+		event2 := &v1.Event{Event: flow2, Timestamp: timestamp.Now()}
+
+		// Add both flows.
+		exporter.aggregator.Add(event1)
+		exporter.aggregator.Add(event2)
+
+		// Wait for flows to be processed.
+		assert.Eventually(t, func() bool {
+			exporter.aggregator.aggregator.mu.RLock()
+			hasFlows := len(exporter.aggregator.aggregator.m) > 0
+			exporter.aggregator.aggregator.mu.RUnlock()
+			return hasFlows
+		}, timeout, tick)
+
+		exporter.aggregator.aggregator.mu.RLock()
+		numAggregations := len(exporter.aggregator.aggregator.m)
+		exporter.aggregator.aggregator.mu.RUnlock()
+
+		// Should have exactly 1 aggregation (both flows are identical after masking).
+		// Previously without the oneof fix, this would create 2 aggregations because,
+		// the field mask would create spurious UDP and DNS structures.
+		assert.Equal(t, 1, numAggregations, "should have exactly 1 aggregation, not one per spurious oneof variant.")
+	})
 }
 
 func TestAggregatorRunFunction(t *testing.T) {
@@ -381,6 +462,7 @@ func TestAsyncProcessingEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
 func getEventList() []*v1.Event {
 	return []*v1.Event{
 		{
