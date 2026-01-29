@@ -3,8 +3,8 @@
 
 ARG DISTRO=mariner
 
-ARG CILIUM_BUILDER_IMAGE=acnpublic.azurecr.io/cilium/cilium-builder-distroless:8e6b6245be998bc8af1694e6a47a2d025a27d59b
-ARG CILIUM_RUNTIME_IMAGE=acnpublic.azurecr.io/cilium/cilium-runtime-distroless:8e6b6245be998bc8af1694e6a47a2d025a27d59b
+ARG CILIUM_BUILDER_IMAGE=acnpublic.azurecr.io/cilium/cilium-builder-distroless:2841a125016963b5141781ce7dcbf5a93d5feb92
+ARG CILIUM_RUNTIME_IMAGE=acnpublic.azurecr.io/cilium/cilium-runtime-distroless:2841a125016963b5141781ce7dcbf5a93d5feb92
 
 #
 # Distroless
