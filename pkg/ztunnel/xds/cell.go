@@ -20,6 +20,9 @@ var Cell = cell.Module(
 	"ztunnel xDS control plane server",
 	cell.Provide(NewServer),
 	cell.Provide(func(x *Server) chan *EndpointEvent {
+		if x == nil {
+			return nil
+		}
 		return x.endpointEventChan
 	}),
 )

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cilium/cilium/pkg/clustermesh"
 	"github.com/cilium/cilium/pkg/ztunnel/ca"
+	"github.com/cilium/cilium/pkg/ztunnel/cleanup"
 	"github.com/cilium/cilium/pkg/ztunnel/config"
 	"github.com/cilium/cilium/pkg/ztunnel/reconciler"
 	"github.com/cilium/cilium/pkg/ztunnel/xds"
@@ -32,6 +33,9 @@ var Cell = cell.Module(
 	// ZDS server for ztunnel
 	zds.Cell,
 	reconciler.Cell,
+
+	// Cleanup controller for ztunnel iptables rules
+	cleanup.Cell,
 )
 
 type ztunnelParams struct {

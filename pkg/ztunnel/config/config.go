@@ -10,22 +10,25 @@ import (
 const (
 	DefaultZtunnelUnixAddress = "/var/run/cilium/ztunnel.sock"
 	DefaultXDSUnixAddress     = "/var/run/cilium/xds.sock"
+	DefaultCleanupStatePath   = "/var/run/cilium/ztunnel-enrolled.json"
 )
 
 var DefaultConfig = Config{
-	EnableZTunnel: false,
-	ZDSUnixAddr:   DefaultZtunnelUnixAddress,
-	XDSUnixAddr:   DefaultXDSUnixAddress,
+	EnableZTunnel:    false,
+	ZDSUnixAddr:      DefaultZtunnelUnixAddress,
+	XDSUnixAddr:      DefaultXDSUnixAddress,
+	CleanupStatePath: DefaultCleanupStatePath,
 }
 
 // Config is a shared config for all ZTunnel module's cells.
 // Note: The operator reads EnableZTunnel directly from the ConfigMap,
 // while the agent uses this Config struct for dependency injection.
 type Config struct {
-	EnableZTunnel bool
-	EnableSPIRE   bool   `mapstructure:"enable-ztunnel-spire"`
-	ZDSUnixAddr   string `mapstructure:"ztunnel-zds-unix-addr"`
-	XDSUnixAddr   string `mapstructure:"ztunnel-xds-unix-addr"`
+	EnableZTunnel    bool
+	EnableSPIRE      bool   `mapstructure:"enable-ztunnel-spire"`
+	ZDSUnixAddr      string `mapstructure:"ztunnel-zds-unix-addr"`
+	XDSUnixAddr      string `mapstructure:"ztunnel-xds-unix-addr"`
+	CleanupStatePath string `mapstructure:"ztunnel-cleanup-state-path"`
 }
 
 func (c Config) Flags(flags *pflag.FlagSet) {
@@ -33,4 +36,5 @@ func (c Config) Flags(flags *pflag.FlagSet) {
 	flags.Bool("enable-ztunnel-spire", false, "Use SPIRE for zTunnel certificate management instead of the built-in CA")
 	flags.String("ztunnel-zds-unix-addr", DefaultZtunnelUnixAddress, "Unix address for zds server")
 	flags.String("ztunnel-xds-unix-addr", DefaultXDSUnixAddress, "Unix address for xds server")
+	flags.String("ztunnel-cleanup-state-path", DefaultCleanupStatePath, "Path to store ztunnel enrolled pod state for cleanup on feature disable")
 }

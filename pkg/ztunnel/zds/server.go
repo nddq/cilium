@@ -5,12 +5,14 @@ package zds
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"path"
 	"sync"
+	"time"
 
 	"github.com/cilium/hive/cell"
 	"golang.org/x/sys/unix"
@@ -22,6 +24,7 @@ import (
 	"github.com/cilium/cilium/pkg/logging/logfields"
 	"github.com/cilium/cilium/pkg/netns"
 	"github.com/cilium/cilium/pkg/option"
+	"github.com/cilium/cilium/pkg/ztunnel/cleanup"
 	"github.com/cilium/cilium/pkg/ztunnel/config"
 	"github.com/cilium/cilium/pkg/ztunnel/iptables"
 	"github.com/cilium/cilium/pkg/ztunnel/pb"
@@ -143,6 +146,10 @@ type serverParams struct {
 
 	EndpointManager endpointmanager.EndpointManager
 
+	// CleanupController is used to persist enrollment state for crash recovery.
+	// Optional because it's provided by the cleanup cell which may not be started yet.
+	CleanupController *cleanup.CleanupController `optional:"true"`
+
 	// ZDSUnixAddr overrides the default ZDS unix socket address.
 	// If empty, config.DefaultZtunnelUnixAddress is used.
 	// This field is intended for testing purposes only.
@@ -173,6 +180,10 @@ type Server struct {
 
 	updates               chan zdsUpdate // updates to send to ztunnel
 	initialSnapshotSeeded chan struct{}
+
+	// cleanupController is used to persist enrollment state for crash recovery.
+	// May be nil if cleanup is not enabled.
+	cleanupController *cleanup.CleanupController
 }
 
 type zdsUpdate struct {
@@ -193,6 +204,7 @@ func newZDSServer(p serverParams) serverOut {
 		updates:               make(chan zdsUpdate, 100),
 		endpointCache:         make(map[uint16]*endpoint.Endpoint),
 		initialSnapshotSeeded: make(chan struct{}),
+		cleanupController:     p.CleanupController,
 	}
 
 	zdsUnixAddr := defaultZDSUnixAddress
@@ -391,26 +403,64 @@ func (s *Server) EnrollEndpoint(ep *endpoint.Endpoint) error {
 	s.endpointCacheMutex.Lock()
 	s.endpointCache[ep.GetID16()] = ep
 	s.endpointCacheMutex.Unlock()
+
+	// Persist enrollment state for crash recovery
+	if s.cleanupController != nil {
+		if err := s.persistEnrolledState(ep); err != nil {
+			s.logger.Warn("Failed to persist enrollment state",
+				logfields.EndpointID, ep.GetID16(),
+				logfields.Error, err,
+			)
+		}
+	}
+
 	return nil
+}
+
+// persistEnrolledState saves the enrollment state to disk for crash recovery.
+func (s *Server) persistEnrolledState(ep *endpoint.Endpoint) error {
+	pod := ep.GetPod()
+	if pod == nil {
+		return fmt.Errorf("endpoint has no pod metadata")
+	}
+
+	state := cleanup.EnrolledPodState{
+		PodUID:     string(pod.GetUID()),
+		Namespace:  ep.GetK8sNamespace(),
+		PodName:    ep.GetK8sPodName(),
+		NetnsPath:  ep.GetContainerNetnsPath(),
+		EnrolledAt: time.Now(),
+	}
+
+	return s.cleanupController.GetStateStore().MarkEnrolled(state)
 }
 
 func (s *Server) DisenrollEndpoint(ep *endpoint.Endpoint) error {
 	s.logger.Info("disenrolling endpoint from ztunnel", logfields.EndpointID, ep.GetID16())
 
+	// Try to open netns and delete rules, but handle missing netns gracefully
 	ns, err := netns.OpenPinned(ep.GetContainerNetnsPath())
 	if err != nil {
-		s.logger.Error("failed to open netns file",
-			logfields.EndpointID, ep.GetID16(),
-			logfields.Error, err,
-		)
-		return err
-	}
-	defer ns.Close()
+		if errors.Is(err, os.ErrNotExist) {
+			// Netns already gone - this is expected during pod deletion
+			s.logger.Info("Pod netns already cleaned up, skipping iptables cleanup",
+				logfields.EndpointID, ep.GetID16(),
+			)
+		} else {
+			s.logger.Error("failed to open netns file",
+				logfields.EndpointID, ep.GetID16(),
+				logfields.Error, err,
+			)
+			return err
+		}
+	} else {
+		defer ns.Close()
 
-	if err = ns.Do(func() error {
-		return iptables.DeleteInPodRules(s.logger, option.Config.EnableIPv4, option.Config.EnableIPv6)
-	}); err != nil {
-		return fmt.Errorf("unable to remove iptable rules for ztunnel inpod mode: %w", err)
+		if err = ns.Do(func() error {
+			return iptables.DeleteInPodRules(s.logger, option.Config.EnableIPv4, option.Config.EnableIPv6)
+		}); err != nil {
+			return fmt.Errorf("unable to remove iptable rules for ztunnel inpod mode: %w", err)
+		}
 	}
 
 	pod := ep.GetPod()
@@ -444,6 +494,16 @@ func (s *Server) DisenrollEndpoint(ep *endpoint.Endpoint) error {
 	s.endpointCacheMutex.Lock()
 	delete(s.endpointCache, ep.GetID16())
 	s.endpointCacheMutex.Unlock()
+
+	// Remove from persisted state
+	if s.cleanupController != nil {
+		if err := s.cleanupController.GetStateStore().MarkDisenrolled(string(pod.GetUID())); err != nil {
+			s.logger.Warn("Failed to remove enrollment state",
+				logfields.EndpointID, ep.GetID16(),
+				logfields.Error, err,
+			)
+		}
+	}
 
 	return nil
 }
