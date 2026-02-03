@@ -738,6 +738,9 @@ func DeployZtunnelTestEnv(ctx context.Context, t *Test, ct *ConnectivityTest) er
 			obj: &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "cilium-test-ztunnel-enrolled-0",
+					Labels: map[string]string{
+						"io.cilium/mtls-enabled": "true",
+					},
 				},
 			},
 		},
@@ -746,6 +749,9 @@ func DeployZtunnelTestEnv(ctx context.Context, t *Test, ct *ConnectivityTest) er
 			obj: &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "cilium-test-ztunnel-enrolled-1",
+					Labels: map[string]string{
+						"io.cilium/mtls-enabled": "true",
+					},
 				},
 			},
 		},

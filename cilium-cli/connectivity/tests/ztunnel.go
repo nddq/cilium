@@ -34,7 +34,7 @@ const (
 	curlRetryDelay      = 2 * time.Second
 
 	// Namespace enrollment label for Cilium's ztunnel mTLS
-	mtlsEnabledLabel = "mtls-enabled"
+	mtlsEnabledLabel = "io.cilium/mtls-enabled"
 )
 
 // podLocation defines whether pods are on the same or different nodes
@@ -260,7 +260,7 @@ func (s *ztunnelTestBase) Name() string {
 // getNamespaceForEnrollment determines which namespace to use based on enrollment and pod type.
 //
 // Namespace distribution strategy:
-// - All 3 test namespaces (enrolled-0, enrolled-1, unenrolled) start without the mtls-enabled label
+// - All 3 test namespaces (enrolled-0, enrolled-1, unenrolled) start without the io.cilium/mtls-enabled label
 // - During test execution, namespaces are dynamically labeled based on enrollment requirements
 // - Unenrolled pods use "cilium-test-ztunnel-unenrolled"
 // - Enrolled pods in same-namespace tests use "cilium-test-ztunnel-enrolled-0"
@@ -722,7 +722,7 @@ func (s *ztunnelTestBase) waitForSpireServerReady(ctx context.Context, t *check.
 // Namespace Enrollment Management
 // ================================================================================
 
-// enrollNamespace adds the mtls-enabled label to a namespace to enroll it in ztunnel mTLS.
+// enrollNamespace adds the io.cilium/mtls-enabled label to a namespace to enroll it in ztunnel mTLS.
 // This triggers Cilium to create SPIRE entries for workloads in this namespace.
 func (s *ztunnelTestBase) enrollNamespace(ctx context.Context, t *check.Test, namespace string) error {
 	t.Debugf("Enrolling namespace %s in ztunnel mTLS", namespace)
@@ -746,7 +746,7 @@ func (s *ztunnelTestBase) enrollNamespace(ctx context.Context, t *check.Test, na
 	return nil
 }
 
-// disenrollNamespace removes the mtls-enabled label from a namespace to disenroll it from ztunnel mTLS.
+// disenrollNamespace removes the io.cilium/mtls-enabled label from a namespace to disenroll it from ztunnel mTLS.
 // This triggers Cilium to remove SPIRE entries for workloads in this namespace.
 func (s *ztunnelTestBase) disenrollNamespace(ctx context.Context, t *check.Test, namespace string) error {
 	t.Debugf("Disenrolling namespace %s from ztunnel mTLS", namespace)
