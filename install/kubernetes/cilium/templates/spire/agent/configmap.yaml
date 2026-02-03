@@ -24,8 +24,9 @@ data:
       admin_socket_path = {{ .Values.authentication.mutual.spire.adminSocketPath | quote }}
       trust_bundle_path = "/run/spire/bundle/bundle.crt"
       trust_domain = {{ .Values.authentication.mutual.spire.trustDomain | quote }}
+      # Only ztunnel needs delegate access when ztunnel is enabled.
+      # Cilium Agent does not communicate with SPIRE directly in ztunnel mode.
       authorized_delegates = [
-        "spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/cilium-agent",
         "spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/ztunnel",
       ]
     }

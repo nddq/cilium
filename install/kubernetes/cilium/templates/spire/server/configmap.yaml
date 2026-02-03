@@ -29,9 +29,10 @@ data:
         common_name = {{ .Values.authentication.mutual.spire.install.server.ca.subject.commonName | quote }},
       }
 
+      # Only cilium-operator needs admin access to create/delete SPIFFE entries.
+      # ztunnel only needs delegate access, not admin access.
       admin_ids = [
         "spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/cilium-operator",
-        "spiffe://{{ .Values.authentication.mutual.spire.trustDomain }}/ztunnel",
       ]
     }
 
