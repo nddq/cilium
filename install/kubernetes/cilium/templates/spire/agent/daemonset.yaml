@@ -99,6 +99,7 @@ spec:
             httpGet:
               path: /live
               port: http
+              host: "127.0.0.1"
             failureThreshold: 2
             initialDelaySeconds: 15
             periodSeconds: 60
@@ -107,6 +108,7 @@ spec:
             httpGet:
               path: /ready
               port: http
+              host: "127.0.0.1"
             initialDelaySeconds: 5
             periodSeconds: 5
       {{- with .Values.authentication.mutual.spire.install.agent.affinity }}

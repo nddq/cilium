@@ -64,8 +64,6 @@ spec:
               value: "true"
             - name: SPIRE_ADMIN_ENDPOINT_SOCKET
               value: {{ printf "unix://%s" .Values.authentication.mutual.spire.adminSocketPath | quote }}
-            - name: CA_ROOT_CA
-              value: "/run/spire/bundle/bundle.crt"
             {{- else }}
             - name: CA_ROOT_CA
               value: "/etc/ztunnel/bootstrap-root.crt"
@@ -135,9 +133,6 @@ spec:
             - name: spire-agent-socket
               mountPath: {{ dir .Values.authentication.mutual.spire.adminSocketPath }}
               readOnly: false
-            - name: spire-bundle
-              mountPath: /run/spire/bundle
-              readOnly: true
             - name: container-runtime-socket
               mountPath: /run/containerd/containerd.sock
               readOnly: true
@@ -186,9 +181,6 @@ spec:
           hostPath:
             path: {{ dir .Values.authentication.mutual.spire.adminSocketPath }}
             type: DirectoryOrCreate
-        - name: spire-bundle
-          configMap:
-            name: spire-bundle
         - name: container-runtime-socket
           hostPath:
             path: /run/containerd/containerd.sock

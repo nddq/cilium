@@ -52,7 +52,7 @@ data:
 
     health_checks {
       listener_enabled = true
-      bind_address = "0.0.0.0"
+      bind_address = "127.0.0.1"
       bind_port = "4251"
       live_path = "/live"
       ready_path = "/ready"
