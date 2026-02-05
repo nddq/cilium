@@ -28,6 +28,8 @@ spec:
   template:
     metadata:
       annotations:
+        prometheus.io/port: "15020"
+        prometheus.io/scrape: "true"
         sidecar.istio.io/inject: "false"
         {{- with .Values.encryption.ztunnel.podAnnotations }}
         {{- toYaml . | nindent 8 }}
