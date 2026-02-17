@@ -23,6 +23,7 @@ import (
 	"github.com/cilium/cilium/daemon/restapi"
 	"github.com/cilium/cilium/pkg/api"
 	"github.com/cilium/cilium/pkg/auth"
+	ztunnel "github.com/cilium/cilium/pkg/ztunnel"
 	"github.com/cilium/cilium/pkg/bgpv1"
 	cgroup "github.com/cilium/cilium/pkg/cgroups/manager"
 	"github.com/cilium/cilium/pkg/ciliumenvoyconfig"
@@ -239,6 +240,9 @@ var (
 
 		// Brokers datapath signals from signalmap
 		signal.Cell,
+
+		// ztunnel related control-plane components
+		ztunnel.Cell,
 
 		// Auth is responsible for authenticating a request if required by a policy.
 		auth.Cell,

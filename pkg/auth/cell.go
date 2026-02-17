@@ -22,6 +22,7 @@ import (
 	"github.com/cilium/cilium/pkg/policy"
 	"github.com/cilium/cilium/pkg/signal"
 	"github.com/cilium/cilium/pkg/time"
+	zconfig "github.com/cilium/cilium/pkg/ztunnel/config"
 )
 
 // Cell provides AuthManager which is responsible for request authentication.
@@ -98,10 +99,11 @@ type authManagerParams struct {
 	NodeManager     nodeManager.NodeManager
 	EndpointManager endpointmanager.EndpointManager
 	PolicyRepo      policy.PolicyRepository
+	ZtunnelConfig   zconfig.Config
 }
 
 func registerAuthManager(params authManagerParams) (*AuthManager, error) {
-	if !params.Config.MeshAuthEnabled {
+	if !params.Config.MeshAuthEnabled || params.ZtunnelConfig.EnableZTunnel {
 		params.Logger.Info("Authentication processing is disabled")
 		return nil, nil
 	}

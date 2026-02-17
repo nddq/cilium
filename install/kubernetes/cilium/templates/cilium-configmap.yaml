@@ -687,6 +687,11 @@ data:
     {{- if .Values.encryption.wireguard.persistentKeepalive }}
   wireguard-persistent-keepalive: {{ .Values.encryption.wireguard.persistentKeepalive | quote }}
     {{- end }}
+  {{- else if eq .Values.encryption.type "ztunnel" }}
+  enable-ztunnel: {{ .Values.encryption.enabled | quote }}
+  {{- if .Values.authentication.mutual.spire.enabled }}
+  enable-ztunnel-spire: "true"
+  {{- end }}
   {{- end }}
   {{- if .Values.encryption.nodeEncryption }}
   encrypt-node: {{ .Values.encryption.nodeEncryption | quote }}

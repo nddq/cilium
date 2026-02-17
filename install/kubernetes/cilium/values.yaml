@@ -204,6 +204,12 @@ serviceAccounts:
     name: hubble-generate-certs
     automount: true
     annotations: {}
+  # -- Ztunnel is used if encryption.type=ztunnel
+  ztunnel:
+    create: true
+    name: ztunnel-cilium
+    automount: false
+    annotations: {}
 # -- Configure termination grace period for cilium-agent DaemonSet.
 terminationGracePeriodSeconds: 1
 # -- Install the cilium agent resources.
@@ -1080,6 +1086,87 @@ encryption:
   wireguard:
     # -- Controls WireGuard PersistentKeepalive option. Set 0s to disable.
     persistentKeepalive: 0s
+  # -- ztunnel encryption configuration.
+  # ztunnel is Istio's purpose-built, per-node proxy for handling L4 traffic in ambient mesh mode.
+  # These settings only apply when encryption.type is set to "ztunnel".
+  ztunnel:
+    # -- ztunnel container image.
+    # TODO: Replace with modified ztunnel built from cilium/ztunnel.
+    image:
+      # @schema
+      # type: [null, string]
+      # @schema
+      override: ~
+      repository: "docker.io/istio/ztunnel"
+      tag: "1.28.0-distroless"
+      pullPolicy: "IfNotPresent"
+      # @schema
+      # type: [null, string]
+      # @schema
+      digest: ~
+      useDigest: false
+    # -- CA server address for certificate requests.
+    caAddress: "https://localhost:15012"
+    # -- TCP port for the health API.
+    healthPort: 15021
+    # -- ztunnel resource limits & requests.
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+    # -- ztunnel update strategy.
+    # Note: maxSurge must be 0 because ztunnel uses hostNetwork with fixed ports.
+    # The old pod must terminate before the new one can bind to the ports.
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        maxSurge: 0
+        maxUnavailable: 1
+    # -- Configure termination grace period for ztunnel DaemonSet.
+    terminationGracePeriodSeconds: 30
+    # -- Readiness probe configuration.
+    readinessProbe:
+      initialDelaySeconds: 0
+      periodSeconds: 10
+      failureThreshold: 3
+    # -- Node selector for ztunnel pods.
+    nodeSelector:
+      kubernetes.io/os: linux
+    # -- Node tolerations for ztunnel scheduling.
+    tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      - key: CriticalAddonsOnly
+        operator: Exists
+      - effect: NoExecute
+        operator: Exists
+    # -- Affinity for ztunnel pods.
+    affinity: {}
+    # @schema
+    # type: [null, string]
+    # @schema
+    # -- The priority class to use for ztunnel pods.
+    priorityClassName: ~
+    # -- Annotations to be added to all ztunnel resources.
+    annotations: {}
+    # -- Annotations to be added to ztunnel pods.
+    podAnnotations: {}
+    # -- Labels to be added to ztunnel pods.
+    podLabels: {}
+    # -- Additional ztunnel container environment variables.
+    extraEnv: []
+    # -- Additional ztunnel volumes.
+    extraVolumes: []
+    # -- Additional ztunnel volumeMounts.
+    extraVolumeMounts: []
+    # -- ztunnel secrets configuration.
+    secrets:
+      # -- Base64-encoded bootstrap root certificate content.
+      # If not provided, the secret must be created manually before deploying.
+      # @schema
+      # type: [null, string]
+      # @schema
+      bootstrapRootCert: ~
 endpointHealthChecking:
   # -- Enable connectivity health checking between virtual endpoints.
   enabled: true
@@ -3862,7 +3949,7 @@ authentication:
           tag: "1.37.0"
           digest: "sha256:2383baad1860bbe9d8a7a843775048fd07d8afe292b94bd876df64a69aae7cb1"
           useDigest: true
-          pullPolicy: "IfNotPresent"
+          pullPolicy: "Always"
         # SPIRE agent configuration
         agent:
           # -- The priority class to use for the spire agent
@@ -3874,10 +3961,10 @@ authentication:
             # @schema
             override: ~
             repository: "ghcr.io/spiffe/spire-agent"
-            tag: "1.12.4"
-            digest: "sha256:163970884fba18860cac93655dc32b6af85a5dcf2ebb7e3e119a10888eff8fcd"
+            tag: "1.14.1"
+            digest: "sha256:7bb8469af28f00908a96a8a51fb36cbbcdfb85efe78e94b492f949f33284bf4d"
             useDigest: true
-            pullPolicy: "IfNotPresent"
+            pullPolicy: "Always"
           # -- SPIRE agent service account
           serviceAccount:
             create: true
@@ -3929,10 +4016,10 @@ authentication:
             # @schema
             override: ~
             repository: "ghcr.io/spiffe/spire-server"
-            tag: "1.12.4"
-            digest: "sha256:34147f27066ab2be5cc10ca1d4bfd361144196467155d46c45f3519f41596e49"
+            tag: "1.14.1"
+            digest: "sha256:46a740705d5e15839552b1307aff44ef5ac42d9b444d073b4ccefd87c5269283"
             useDigest: true
-            pullPolicy: "IfNotPresent"
+            pullPolicy: "Always"
           # -- SPIRE server service account
           serviceAccount:
             create: true

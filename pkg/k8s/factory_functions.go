@@ -8,6 +8,7 @@ import (
 
 	v1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 
 	cilium_v2 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2"
@@ -272,8 +273,9 @@ func TransformToCiliumEndpoint(obj any) (any, error) {
 				ResourceVersion: concreteObj.ObjectMeta.ResourceVersion,
 				// We don't need to store labels nor annotations because
 				// they are not used by the CEP handlers.
-				Labels:      nil,
-				Annotations: nil,
+				Labels:          nil,
+				Annotations:     nil,
+				OwnerReferences: convertOwnerReferences(concreteObj.ObjectMeta.OwnerReferences),
 			},
 			Encryption: func() *cilium_v2.EncryptionSpec {
 				enc := concreteObj.Status.Encryption
@@ -307,8 +309,9 @@ func TransformToCiliumEndpoint(obj any) (any, error) {
 					ResourceVersion: ciliumEndpoint.ObjectMeta.ResourceVersion,
 					// We don't need to store labels nor annotations because
 					// they are not used by the CEP handlers.
-					Labels:      nil,
-					Annotations: nil,
+					Labels:          nil,
+					Annotations:     nil,
+					OwnerReferences: convertOwnerReferences(ciliumEndpoint.ObjectMeta.OwnerReferences),
 				},
 				Encryption: func() *cilium_v2.EncryptionSpec {
 					enc := ciliumEndpoint.Status.Encryption
@@ -322,6 +325,26 @@ func TransformToCiliumEndpoint(obj any) (any, error) {
 	default:
 		return nil, fmt.Errorf("unknown object type %T", concreteObj)
 	}
+}
+
+// convertOwnerReferences converts standard k8s OwnerReferences to slim OwnerReferences.
+// This is needed by the ztunnel xDS stream processor which uses OwnerReferences
+// to extract the Pod UID for workload identification.
+func convertOwnerReferences(refs []metav1.OwnerReference) []slim_metav1.OwnerReference {
+	if len(refs) == 0 {
+		return nil
+	}
+	result := make([]slim_metav1.OwnerReference, len(refs))
+	for i, ref := range refs {
+		result[i] = slim_metav1.OwnerReference{
+			APIVersion: ref.APIVersion,
+			Kind:       ref.Kind,
+			Name:       ref.Name,
+			UID:        ref.UID,
+			Controller: ref.Controller,
+		}
+	}
+	return result
 }
 
 // ConvertCEPToCoreCEP converts a CiliumEndpoint to a CoreCiliumEndpoint

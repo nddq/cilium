@@ -26,6 +26,7 @@ import (
 	"github.com/cilium/cilium/cilium-dbg/cmd/troubleshoot"
 	"github.com/cilium/cilium/operator/api"
 	"github.com/cilium/cilium/operator/auth"
+	operatorZtunnel "github.com/cilium/cilium/operator/pkg/ztunnel"
 	"github.com/cilium/cilium/operator/doublewrite"
 	"github.com/cilium/cilium/operator/endpointgc"
 	"github.com/cilium/cilium/operator/endpointslicegc"
@@ -239,6 +240,7 @@ var (
 			bgpv2.Cell,
 			lbipam.Cell,
 			nodeipam.Cell,
+			operatorZtunnel.Cell,
 			auth.Cell,
 			store.Cell,
 			cmoperator.Cell,
