@@ -19,10 +19,12 @@ import (
 	entryv1 "github.com/spiffe/spire-api-sdk/proto/spire/api/server/entry/v1"
 	"github.com/spiffe/spire-api-sdk/proto/spire/api/types"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/cilium/cilium/operator/auth/identity"
+	ztunnel "github.com/cilium/cilium/operator/pkg/ztunnel/config"
 	"github.com/cilium/cilium/pkg/backoff"
 	k8sClient "github.com/cilium/cilium/pkg/k8s/client"
 	"github.com/cilium/cilium/pkg/lock"
@@ -48,6 +50,20 @@ var Cell = cell.Module(
 	"Spire Server API Client",
 	cell.Config(defaultMutualAuthConfig),
 	cell.Config(defaultClientConfig),
+	cell.Provide(func(zfg ztunnel.Config) SpireEntryConfig {
+		if zfg.EnableZTunnel {
+			return SpireEntryConfig{
+				ParentID:      "/ztunnel",
+				PathFunc:      ztunnel.SpiffeIDPathFunc,
+				SelectorsFunc: ztunnel.SpiffeIDSelectorsFunc,
+			}
+		}
+		return SpireEntryConfig{
+			ParentID:      defaultParentID,
+			PathFunc:      toPath,
+			SelectorsFunc: func(id string) []*types.Selector { return defaultSelectors },
+		}
+	}),
 	cell.Provide(NewClient),
 )
 
@@ -109,34 +125,93 @@ func (cfg ClientConfig) Flags(flags *pflag.FlagSet) {
 type params struct {
 	cell.In
 
-	K8sClient k8sClient.Clientset
+	Logger           *slog.Logger
+	K8sClient        k8sClient.Clientset
+	Lifecycle        cell.Lifecycle
+	MutualAuthConfig MutualAuthConfig
+	ClientConfig     ClientConfig
+	EntryConfig      SpireEntryConfig
+	ZtunnelConfig    ztunnel.Config
 }
 
 type Client struct {
-	cfg        ClientConfig
-	log        *slog.Logger
-	entry      entryv1.EntryClient
-	entryMutex lock.RWMutex
-	k8sClient  k8sClient.Clientset
+	cfg          ClientConfig
+	log          *slog.Logger
+	entry        entryv1.EntryClient
+	entryCfg     SpireEntryConfig
+	entryMutex   lock.RWMutex
+	k8sClient    k8sClient.Clientset
+	initialized  chan struct{}
+	resyncNeeded chan struct{}
+	x509Source   *workloadapi.X509Source
+}
+
+type SpireEntryConfig struct {
+	ParentID      string
+	PathFunc      func(string) string
+	SelectorsFunc func(string) []*types.Selector
+}
+
+type out struct {
+	cell.Out
+
+	Provider identity.Provider
+	Client   *Client
 }
 
 // NewClient creates a new SPIRE client.
 // If the mutual authentication is not enabled, it returns a noop client.
-func NewClient(params params, lc cell.Lifecycle, authCfg MutualAuthConfig, cfg ClientConfig, log *slog.Logger) identity.Provider {
-	if !authCfg.Enabled {
-		return &noopClient{}
-	}
-	client := &Client{
-		k8sClient: params.K8sClient,
-		cfg:       cfg,
-		log:       log.With(logfields.LogSubsys, "spire-client"),
+func NewClient(params params) out {
+	if !params.MutualAuthConfig.Enabled {
+		return out{
+			Provider: &noopClient{},
+			Client:   nil,
+		}
 	}
 
-	lc.Append(cell.Hook{
+	client := &Client{
+		k8sClient:    params.K8sClient,
+		cfg:          params.ClientConfig,
+		entryCfg:     params.EntryConfig,
+		log:          params.Logger.With(logfields.LogSubsys, "spire-client"),
+		initialized:  make(chan struct{}),
+		resyncNeeded: make(chan struct{}, 1),
+	}
+
+	var provider identity.Provider = client
+	if params.ZtunnelConfig.EnableZTunnel {
+		params.Logger.Info("Ztunnel-Spire integration enabled, returning noop identity provider")
+		provider = &noopClient{}
+	}
+
+	params.Lifecycle.Append(cell.Hook{
 		OnStart: client.onStart,
 		OnStop:  func(_ cell.HookContext) error { return nil },
 	})
-	return client
+	return out{
+		Provider: provider,
+		Client:   client,
+	}
+}
+
+func (c *Client) GetSpireEntryConfig() SpireEntryConfig {
+	return c.entryCfg
+}
+
+func (c *Client) GetSpireTrustDomain() string {
+	return c.cfg.SpiffeTrustDomain
+}
+
+// Initialized returns a channel that is closed when the client is initialized.
+func (c *Client) Initialized() <-chan struct{} {
+	return c.initialized
+}
+
+// ResyncNeeded returns a channel that signals when the SPIRE server has
+// reconnected after a connection loss, indicating that entries may need
+// to be re-synced (e.g. after a SPIRE server restart with ephemeral storage).
+func (c *Client) ResyncNeeded() <-chan struct{} {
+	return c.resyncNeeded
 }
 
 func (c *Client) onStart(_ cell.HookContext) error {
@@ -146,11 +221,13 @@ func (c *Client) onStart(_ cell.HookContext) error {
 		backoffTime := backoff.Exponential{Logger: c.log, Min: 100 * time.Millisecond, Max: 10 * time.Second}
 		for {
 			attempts++
-			conn, err := c.connect(context.Background())
+			conn, source, err := c.connect(context.Background())
 			if err == nil {
 				c.entryMutex.Lock()
 				c.entry = entryv1.NewEntryClient(conn)
 				c.entryMutex.Unlock()
+				c.x509Source = source
+				close(c.initialized)
 				break
 			}
 			c.log.Warn("Unable to connect to SPIRE server",
@@ -159,11 +236,35 @@ func (c *Client) onStart(_ cell.HookContext) error {
 			time.Sleep(backoffTime.Duration(attempts))
 		}
 		c.log.Info("Initialized SPIRE client")
+		c.monitorConnection(context.Background())
 	}()
 	return nil
 }
 
-func (c *Client) connect(ctx context.Context) (*grpc.ClientConn, error) {
+// monitorConnection watches the Workload API X509Source for updates and signals
+// resyncNeeded when new certificates are received. This handles the case where
+// the SPIRE server restarts with ephemeral storage and loses all entries —
+// the SPIRE agent reconnects to the new server, the X509Source gets updated
+// with certificates from the new CA, and we re-sync all entries.
+func (c *Client) monitorConnection(ctx context.Context) {
+	updated := c.x509Source.Updated()
+	c.log.Info("SPIRE server connection monitor started")
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-updated:
+			c.log.Info("Workload API X509 context updated, triggering entry resync")
+			select {
+			case c.resyncNeeded <- struct{}{}:
+			default:
+			}
+		}
+	}
+}
+
+func (c *Client) connect(ctx context.Context) (*grpc.ClientConn, *workloadapi.X509Source, error) {
 	timeoutCtx, cancelFunc := context.WithTimeout(ctx, c.cfg.SpireServerConnectionTimeout)
 	defer cancelFunc()
 
@@ -183,12 +284,12 @@ func (c *Client) connect(ctx context.Context) (*grpc.ClientConn, error) {
 		),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create X509 source: %w", err)
+		return nil, nil, fmt.Errorf("failed to create X509 source: %w", err)
 	}
 
 	trustedDomain, err := spiffeid.TrustDomainFromString(c.cfg.SpiffeTrustDomain)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse trust domain: %w", err)
+		return nil, nil, fmt.Errorf("failed to parse trust domain: %w", err)
 	}
 
 	tlsConfig := tlsconfig.MTLSClientConfig(source, source, tlsconfig.AuthorizeMemberOf(trustedDomain))
@@ -198,13 +299,13 @@ func (c *Client) connect(ctx context.Context) (*grpc.ClientConn, error) {
 		logfields.IPAddr, resolvedTarget)
 	conn, err := grpc.NewClient(*resolvedTarget, grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)))
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection to SPIRE server: %w", err)
+		return nil, nil, fmt.Errorf("failed to create connection to SPIRE server: %w", err)
 	}
 
 	c.log.Info("Connected to SPIRE server",
 		logfields.Address, c.cfg.SpireServerAddress,
 		logfields.IPAddr, resolvedTarget)
-	return conn, nil
+	return conn, source, nil
 }
 
 // Upsert creates or updates the SPIFFE ID for the given ID.
@@ -225,13 +326,13 @@ func (c *Client) Upsert(ctx context.Context, id string) error {
 		{
 			SpiffeId: &types.SPIFFEID{
 				TrustDomain: c.cfg.SpiffeTrustDomain,
-				Path:        toPath(id),
+				Path:        c.entryCfg.PathFunc(id),
 			},
 			ParentId: &types.SPIFFEID{
 				TrustDomain: c.cfg.SpiffeTrustDomain,
-				Path:        defaultParentID,
+				Path:        c.entryCfg.ParentID,
 			},
-			Selectors: defaultSelectors,
+			Selectors: c.entryCfg.SelectorsFunc(id),
 		},
 	}
 
@@ -244,6 +345,38 @@ func (c *Client) Upsert(ctx context.Context, id string) error {
 		Entries: desired,
 	})
 	return err
+}
+
+func (c *Client) InsertBatch(ctx context.Context, entries []*types.Entry) error {
+	c.entryMutex.RLock()
+	defer c.entryMutex.RUnlock()
+
+	if c.entry == nil {
+		return fmt.Errorf("unable to connect to SPIRE server %s", c.cfg.SpireServerAddress)
+	}
+
+	if len(entries) == 0 {
+		return nil
+	}
+
+	// Try to create all entries
+	resp, err := c.entry.BatchCreateEntry(ctx,
+		&entryv1.BatchCreateEntryRequest{Entries: entries},
+	)
+	if err != nil {
+		return fmt.Errorf("batch create failed: %w", err)
+	}
+
+	// Ignore AlreadyExists errors
+	for _, r := range resp.Results {
+		if r.Status.Code != int32(codes.OK) &&
+			r.Status.Code != int32(codes.AlreadyExists) {
+			return fmt.Errorf("entry create failed: %v: %s",
+				r.Status.Code, r.Status.Message)
+		}
+	}
+
+	return nil
 }
 
 // Delete deletes the SPIFFE ID for the given ID.
@@ -281,6 +414,59 @@ func (c *Client) Delete(ctx context.Context, id string) error {
 	return err
 }
 
+// DeleteBatch deletes the SPIFFE IDs for the given list of IDs.
+// The SPIFFE ID is in the form of spiffe://<trust-domain>/identity/<id>.
+func (c *Client) DeleteBatch(ctx context.Context, ids []string) error {
+	c.entryMutex.RLock()
+	defer c.entryMutex.RUnlock()
+	if c.entry == nil {
+		return fmt.Errorf("unable to connect to SPIRE server %s", c.cfg.SpireServerAddress)
+	}
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// First, look up the entry IDs for all the SPIFFE IDs
+	var entryIDs []string
+	for _, id := range ids {
+		entries, err := c.listEntries(ctx, id)
+		if err != nil {
+			if strings.Contains(err.Error(), notFoundError) {
+				// Entry doesn't exist, skip it
+				continue
+			}
+			return fmt.Errorf("failed to list entries for %s: %w", id, err)
+		}
+		for _, e := range entries.Entries {
+			entryIDs = append(entryIDs, e.Id)
+		}
+	}
+
+	if len(entryIDs) == 0 {
+		// All entries were already deleted
+		return nil
+	}
+
+	resp, err := c.entry.BatchDeleteEntry(ctx, &entryv1.BatchDeleteEntryRequest{
+		Ids: entryIDs,
+	})
+	if err != nil {
+		return fmt.Errorf("batch delete failed: %w", err)
+	}
+
+	// Ignore NotFound errors
+	for _, r := range resp.Results {
+		if r.Status.Code != int32(codes.OK) &&
+			r.Status.Code != int32(codes.NotFound) {
+			return fmt.Errorf("entry delete failed: %v: %s",
+				r.Status.Code, r.Status.Message)
+		}
+	}
+
+	return nil
+}
+
 func (c *Client) List(ctx context.Context) ([]string, error) {
 	c.entryMutex.RLock()
 	defer c.entryMutex.RUnlock()
@@ -288,10 +474,10 @@ func (c *Client) List(ctx context.Context) ([]string, error) {
 		Filter: &entryv1.ListEntriesRequest_Filter{
 			ByParentId: &types.SPIFFEID{
 				TrustDomain: c.cfg.SpiffeTrustDomain,
-				Path:        defaultParentID,
+				Path:        c.entryCfg.ParentID,
 			},
 			BySelectors: &types.SelectorMatch{
-				Selectors: defaultSelectors,
+				Selectors: c.entryCfg.SelectorsFunc(""),
 				Match:     types.SelectorMatch_MATCH_EXACT,
 			},
 		},
@@ -316,14 +502,14 @@ func (c *Client) listEntries(ctx context.Context, id string) (*entryv1.ListEntri
 		Filter: &entryv1.ListEntriesRequest_Filter{
 			BySpiffeId: &types.SPIFFEID{
 				TrustDomain: c.cfg.SpiffeTrustDomain,
-				Path:        toPath(id),
+				Path:        c.entryCfg.PathFunc(id),
 			},
 			ByParentId: &types.SPIFFEID{
 				TrustDomain: c.cfg.SpiffeTrustDomain,
-				Path:        defaultParentID,
+				Path:        c.entryCfg.ParentID,
 			},
 			BySelectors: &types.SelectorMatch{
-				Selectors: defaultSelectors,
+				Selectors: c.entryCfg.SelectorsFunc(id),
 				Match:     types.SelectorMatch_MATCH_EXACT,
 			},
 		},

@@ -435,6 +435,7 @@ func (e *Endpoint) toSerializedEndpoint() *serializableEndpoint {
 		IfIndex:                  e.ifIndex,
 		ParentIfIndex:            e.parentIfIndex,
 		ContainerIfName:          e.containerIfName,
+		ContainerNetnsPath:       e.containerNetnsPath,
 		DisableLegacyIdentifiers: e.disableLegacyIdentifiers,
 		Labels:                   e.labels,
 		LXCMAC:                   e.mac,
@@ -501,6 +502,9 @@ type serializableEndpoint struct {
 
 	// ContainerIfName is the name of the container facing interface (veth pair).
 	ContainerIfName string
+
+	// ContainerNetnsPath is the path to the container's network namespace.
+	ContainerNetnsPath string
 
 	// DisableLegacyIdentifiers disables lookup using legacy endpoint identifiers
 	// (container name, container id, pod name) for this endpoint.
@@ -615,6 +619,7 @@ func (ep *Endpoint) fromSerializedEndpoint(r *serializableEndpoint) {
 	ep.ifIndex = r.IfIndex
 	ep.parentIfIndex = r.ParentIfIndex
 	ep.containerIfName = r.ContainerIfName
+	ep.containerNetnsPath = r.ContainerNetnsPath
 	ep.disableLegacyIdentifiers = r.DisableLegacyIdentifiers
 	ep.labels = r.Labels
 	ep.mac = r.LXCMAC

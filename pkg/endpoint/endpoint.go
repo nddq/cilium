@@ -212,6 +212,10 @@ type Endpoint struct {
 	// Immutable after Endpoint creation.
 	containerIfName string
 
+	// containerNetnsPath is the path to the container's network namespace.
+	// Immutable after Endpoint creation.
+	containerNetnsPath string
+
 	// parentIfIndex is the interface index of the network device over which traffic
 	// with the source endpoints IP should egress when that traffic is not masqueraded.
 	parentIfIndex int
@@ -2696,6 +2700,16 @@ func (e *Endpoint) SetPropertyValue(key string, value any) any {
 	old := e.properties[key]
 	e.properties[key] = value
 	return old
+}
+
+// GetContainerNetnsPath returns the path to the container's network namespace.
+func (e *Endpoint) GetContainerNetnsPath() string {
+	return e.containerNetnsPath
+}
+
+// SetContainerNetnsPath sets the path to the container's network namespace.
+func (e *Endpoint) SetContainerNetnsPath(path string) {
+	e.containerNetnsPath = path
 }
 
 // IsProperty checks if the value of the properties map is set, it's a boolean

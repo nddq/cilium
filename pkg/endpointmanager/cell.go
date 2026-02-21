@@ -75,6 +75,13 @@ type EndpointsLookup interface {
 	// GetEndpoints returns a slice of all endpoints present in endpoint manager.
 	GetEndpoints() []*endpoint.Endpoint
 
+	// GetEndpointsByNamespace returns all endpoints in the given namespace.
+	GetEndpointsByNamespace(namespace string) []*endpoint.Endpoint
+
+	// GetEndpointsByServiceAccount returns all endpoints matching the given
+	// namespace and service account.
+	GetEndpointsByServiceAccount(namespace, serviceAccount string) []*endpoint.Endpoint
+
 	// GetEndpointList returns a slice of all endpoint models.
 	GetEndpointList(params endpointapi.GetEndpointParams) []*models.Endpoint
 

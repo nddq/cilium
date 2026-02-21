@@ -24,6 +24,7 @@ import (
 	endpointid "github.com/cilium/cilium/pkg/endpoint/id"
 	"github.com/cilium/cilium/pkg/endpoint/regeneration"
 	"github.com/cilium/cilium/pkg/identity"
+	ciliumio "github.com/cilium/cilium/pkg/k8s/apis/cilium.io"
 	"github.com/cilium/cilium/pkg/labels"
 	"github.com/cilium/cilium/pkg/lock"
 	"github.com/cilium/cilium/pkg/logging/logfields"
@@ -620,6 +621,33 @@ func (mgr *endpointManager) GetEndpoints() []*endpoint.Endpoint {
 	eps := make([]*endpoint.Endpoint, 0, len(mgr.endpoints))
 	for _, ep := range mgr.endpoints {
 		eps = append(eps, ep)
+	}
+	mgr.mutex.RUnlock()
+	return eps
+}
+
+func (mgr *endpointManager) GetEndpointsByNamespace(namespace string) []*endpoint.Endpoint {
+	mgr.mutex.RLock()
+	eps := make([]*endpoint.Endpoint, 0)
+	for _, ep := range mgr.endpoints {
+		if ep.K8sNamespace == namespace {
+			eps = append(eps, ep)
+		}
+	}
+	mgr.mutex.RUnlock()
+	return eps
+}
+
+func (mgr *endpointManager) GetEndpointsByServiceAccount(namespace, serviceAccount string) []*endpoint.Endpoint {
+	mgr.mutex.RLock()
+	eps := make([]*endpoint.Endpoint, 0)
+	for _, ep := range mgr.endpoints {
+		if ep.K8sNamespace == namespace {
+			lbls := ep.GetLabels()
+			if sa, ok := lbls[labels.LabelSourceK8s+":"+ciliumio.PolicyLabelServiceAccount]; ok && sa.Value == serviceAccount {
+				eps = append(eps, ep)
+			}
+		}
 	}
 	mgr.mutex.RUnlock()
 	return eps

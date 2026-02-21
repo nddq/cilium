@@ -67,7 +67,7 @@ spec:
           image: {{ include "cilium.image" .Values.authentication.mutual.spire.install.agent.image | quote }}
           imagePullPolicy: {{ .Values.authentication.mutual.spire.install.agent.image.pullPolicy }}
           {{- end }}
-          args: ["-config", "/run/spire/config/agent.conf"]
+          args: ["run", "-config", "/run/spire/config/agent.conf"]
           {{- with .Values.authentication.mutual.spire.install.agent.securityContext }}
           securityContext:
             {{- toYaml . | nindent 12 }}
@@ -92,10 +92,14 @@ spec:
           resources:
             {{- toYaml . | trim | nindent 12 }}
           {{- end }}
+          ports:
+          - name: http
+            containerPort: 4251
           livenessProbe:
             httpGet:
               path: /live
-              port: 4251
+              port: http
+              host: "127.0.0.1"
             failureThreshold: 2
             initialDelaySeconds: 15
             periodSeconds: 60
@@ -103,7 +107,8 @@ spec:
           readinessProbe:
             httpGet:
               path: /ready
-              port: 4251
+              port: http
+              host: "127.0.0.1"
             initialDelaySeconds: 5
             periodSeconds: 5
       {{- with .Values.authentication.mutual.spire.install.agent.affinity }}

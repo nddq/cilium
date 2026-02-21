@@ -622,6 +622,9 @@ const (
 	// K8sNamespace is the namespace something belongs to
 	K8sNamespace = "k8sNamespace"
 
+	// K8sServiceAccount is the service account of a Kubernetes pod
+	K8sServiceAccount = "k8sServiceAccount"
+
 	K8sNamespaceIllegal = "k8sNamespace.illegal"
 
 	// K8sIdentityAnnotation is a k8s non-identifying annotations on k8s objects

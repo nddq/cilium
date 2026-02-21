@@ -13,6 +13,7 @@ import (
 
 	agentK8s "github.com/cilium/cilium/daemon/k8s"
 	"github.com/cilium/cilium/pkg/endpointmanager"
+	cilium_api_v2alpha1 "github.com/cilium/cilium/pkg/k8s/apis/cilium.io/v2alpha1"
 	hubblemetrics "github.com/cilium/cilium/pkg/hubble/metrics"
 	"github.com/cilium/cilium/pkg/identity"
 	"github.com/cilium/cilium/pkg/ipcache"
@@ -70,6 +71,16 @@ type K8sCiliumEndpointsWatcher struct {
 	ipcache         ipcacheManager
 
 	resources agentK8s.Resources
+}
+
+// GetCiliumEndpointSliceResource returns the CiliumEndpointSlice resource.
+func (k *K8sCiliumEndpointsWatcher) GetCiliumEndpointSliceResource() resource.Resource[*cilium_api_v2alpha1.CiliumEndpointSlice] {
+	return k.resources.CiliumEndpointSlice
+}
+
+// GetCiliumEndpointResource returns the CiliumEndpoint resource.
+func (k *K8sCiliumEndpointsWatcher) GetCiliumEndpointResource() resource.Resource[*types.CiliumEndpoint] {
+	return k.resources.CiliumSlimEndpoint
 }
 
 // initCiliumEndpointOrSlices initializes the ciliumEndpoints or ciliumEndpointSlice
