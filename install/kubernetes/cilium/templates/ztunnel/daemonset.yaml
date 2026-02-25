@@ -49,8 +49,26 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      hostNetwork: true
       dnsPolicy: ClusterFirst
+      {{- if .Values.authentication.mutual.spire.enabled }}
+      initContainers:
+        - name: wait-for-spire-agent
+          image: {{ include "cilium.image" .Values.authentication.mutual.spire.install.initImage | quote }}
+          imagePullPolicy: {{ .Values.authentication.mutual.spire.install.initImage.pullPolicy }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for SPIRE agent socket..."
+              while [ ! -S {{ .Values.authentication.mutual.spire.adminSocketPath | quote }} ]; do
+                sleep 2
+              done
+              echo "SPIRE agent socket is ready"
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: {{ dir .Values.authentication.mutual.spire.adminSocketPath }}
+              readOnly: true
+      {{- end }}
       containers:
         - name: istio-proxy
           image: {{ include "cilium.image" .Values.encryption.ztunnel.image | quote }}
@@ -91,11 +109,19 @@ spec:
             {{- with .Values.encryption.ztunnel.extraEnv }}
             {{- toYaml . | trim | nindent 12 }}
             {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: {{ .Values.encryption.ztunnel.healthPort }}
+              scheme: HTTP
+            failureThreshold: 5
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 3
           readinessProbe:
             httpGet:
               path: /healthz/ready
               port: {{ .Values.encryption.ztunnel.healthPort }}
-              host: "127.0.0.1"
               scheme: HTTP
             initialDelaySeconds: {{ .Values.encryption.ztunnel.readinessProbe.initialDelaySeconds }}
             periodSeconds: {{ .Values.encryption.ztunnel.readinessProbe.periodSeconds }}

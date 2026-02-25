@@ -42,6 +42,10 @@ spec:
     spec:
       priorityClassName: {{ include "cilium.priorityClass" (list $ .Values.authentication.mutual.spire.install.server.priorityClassName "system-node-critical") }}
       serviceAccountName: {{ .Values.authentication.mutual.spire.install.server.serviceAccount.name }}
+      {{- if .Values.authentication.mutual.spire.install.server.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
       shareProcessNamespace: true
       {{- with .Values.authentication.mutual.spire.install.server.podSecurityContext }}
       securityContext:
@@ -59,6 +63,10 @@ spec:
       - name: cilium-init
         image: {{ include "cilium.image" .Values.authentication.mutual.spire.install.initImage | quote }}
         imagePullPolicy: {{ .Values.authentication.mutual.spire.install.initImage.pullPolicy }}
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
         command:
           - /bin/sh
           - -c
@@ -72,6 +80,7 @@ spec:
         imagePullPolicy: {{ .Values.authentication.mutual.spire.install.server.image.pullPolicy }}
         {{- end }}
         args:
+        - run
         - -config
         - /run/spire/config/server.conf
         {{- with .Values.authentication.mutual.spire.install.server.resources }}
@@ -87,11 +96,9 @@ spec:
         - name: spire-config
           mountPath: /run/spire/config
           readOnly: true
-        {{- if .Values.authentication.mutual.spire.install.server.dataStorage.enabled }}
         - name: spire-data
           mountPath: /run/spire/data
           readOnly: false
-        {{- end }}
         - name: spire-server-socket
           mountPath: /tmp/spire-server/private
           readOnly: false
@@ -121,19 +128,18 @@ spec:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.authentication.mutual.spire.install.server.tolerations }}
       tolerations:
-        {{- toYaml . | trim | nindent 8 }}
-      {{- end }}
+        {{- with .Values.authentication.mutual.spire.install.server.tolerations }}
+          {{- toYaml . | trim | nindent 8 }}
+        {{- end }}
+        - key:  {{ .Values.agentNotReadyTaintKey | default "node.cilium.io/agent-not-ready" }}
+          effect: NoSchedule
       volumes:
       - name: spire-config
         configMap:
           name: spire-server
       - name: spire-server-socket
-        hostPath:
-          path: /var/run/spire-server/sockets
-          type: DirectoryOrCreate
-  {{- if .Values.authentication.mutual.spire.install.server.dataStorage.enabled }}
+        emptyDir: {}
   volumeClaimTemplates:
   - metadata:
       name: spire-data
@@ -142,7 +148,6 @@ spec:
       - {{ .Values.authentication.mutual.spire.install.server.dataStorage.accessMode | default "ReadWriteOnce" }}
       resources:
         requests:
-          storage: {{ .Values.authentication.mutual.spire.install.server.dataStorage.size }}
+          storage: {{ .Values.authentication.mutual.spire.install.server.dataStorage.size | default "1Gi" }}
       storageClassName: {{ .Values.authentication.mutual.spire.install.server.dataStorage.storageClass }}
-  {{- end }}
 {{- end }}
